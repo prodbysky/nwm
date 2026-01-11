@@ -1,0 +1,12 @@
+[package]
+name = "nwm"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+env_logger = "0.11.8"
+log = "0.4.29"
+platform-dirs = "0.3.0"
+serde = { version = "1.0.228", features = ["derive"] }
+toml = "0.9.11"
+x11 = { version = "2.21.0", features = ["xlib", "xinerama"] }
