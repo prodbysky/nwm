@@ -1,5 +1,3 @@
-use std::{mem::zeroed, slice};
-
 use log::{error, warn, debug, trace, info};
 
 use x11::{xinerama, xlib};
@@ -109,7 +107,7 @@ impl Nwm {
         }
 
         if run_dir.exists() {
-            std::process::Command::new("sh").arg(run_dir).spawn().unwrap().wait().unwrap();
+            std::process::Command::new("sh").arg(run_dir).spawn().ok();
         }
 
 
@@ -155,6 +153,87 @@ impl Nwm {
         }
     }
 
+    fn grab_pointer(&mut self) {
+        unsafe {
+            xlib::XGrabPointer(
+                self.display,
+                xlib::XDefaultRootWindow(self.display),
+                xlib::True,
+                (xlib::PointerMotionMask | xlib::EnterWindowMask) as u32,
+                xlib::GrabModeAsync,
+                xlib::GrabModeAsync,
+                0,
+                0,
+                xlib::CurrentTime,
+            );
+        }
+    }
+
+    fn unmap_window(&mut self, window_index: usize) {
+        if window_index < self.windows.len() {
+            unsafe {
+                xlib::XUnmapWindow(self.display, self.windows[window_index]);
+            }
+        }
+    }
+
+    fn forget_window(&mut self, window_index: usize) {
+        if window_index < self.windows.len() {
+            self.unmap_window(window_index);
+            self.windows.remove(window_index);
+        }
+    }
+
+    fn close_window(&mut self, window_index: usize) {
+        if self.windows.len() <= window_index {
+            warn!("Tried to close window that does not exist");
+            return;
+        }
+        unsafe {
+            let wm_prot = xlib::XInternAtom(self.display, b"WM_PROTOCOLS\0".as_ptr() as *const i8, xlib::False);
+
+            let wm_del = xlib::XInternAtom(self.display, b"WM_DELETE_WINDOW\0".as_ptr() as *const i8, xlib::False);
+
+            let mut prots: *mut xlib::Atom = std::ptr::null_mut();
+            let mut count: i32 = 0;
+
+            if xlib::XGetWMProtocols(self.display, self.windows[window_index], &mut prots, &mut count) != 0 {
+                let supported = std::slice::from_raw_parts(prots, count as usize).iter().any(|&x| x == wm_del);
+                xlib::XFree(prots as *mut _);
+
+                if supported {
+                    let mut event: xlib::XEvent = std::mem::zeroed();
+                    event.client_message.type_ = xlib::ClientMessage;
+                    event.client_message.window = self.windows[window_index];
+                    event.client_message.message_type = wm_prot;
+                    event.client_message.format = 32;
+                    event.client_message.data.set_long(0, wm_del as i64);
+                    event.client_message.data.set_long(1, xlib::CurrentTime as i64);
+
+                    xlib::XSendEvent(
+                        self.display,
+                        self.windows[window_index],
+                        xlib::False,
+                        xlib::NoEventMask,
+                        &mut event,
+                    );
+                    self.windows.remove(window_index);
+                    return;
+                }
+            }
+            // fallback for bad clients
+            xlib::XKillClient(self.display, self.windows[window_index]);
+            self.windows.remove(window_index);
+        }
+
+    }
+
+    fn refresh_mappings(&mut self, mut e: x11::xlib::XMappingEvent) {
+        unsafe {
+            xlib::XRefreshKeyboardMapping(&mut e);
+        }
+    }
+
     pub fn run(mut self) {
         use std::mem::zeroed;
         let mut event: xlib::XEvent = unsafe {zeroed()};
@@ -183,51 +262,17 @@ impl Nwm {
         self.grab_key(h_code, self.conf.get_master_key() | MOD_SHIFT);
         self.grab_key(l_code, self.conf.get_master_key() | MOD_SHIFT);
 
+        self.grab_pointer();
+
         info!("Keybindings were setup");
 
-        unsafe {
-            xlib::XGrabPointer(
-                self.display,
-                xlib::XDefaultRootWindow(self.display),
-                xlib::True,
-                (xlib::PointerMotionMask | xlib::EnterWindowMask) as u32,
-                xlib::GrabModeAsync,
-                xlib::GrabModeAsync,
-                0,
-                0,
-                xlib::CurrentTime,
-            );
-        }
 
         while self.running {
-            /*
-            let mut x = 0;
-            let mut y = 0;
-            // ty to suckless https://git.suckless.org/dwm/file/dwm.c.html
-            unsafe {
-                let mut dummy: WindowId = 0;
-                let mut di = 0;
-                let mut dui = 0;
-                xlib::XQueryPointer(self.display, xlib::XDefaultRootWindow(self.display), &mut dummy, &mut dummy, &mut x, &mut y, &mut di, &mut di, &mut dui);
-            }
-            if !(self.last_x == x && self.last_y == y) {
-                let rects = self.window_rects();
-                for (i, r) in rects.iter().enumerate() {
-                    if x > r.x && x < r.x + r.w {
-                        self.focused = Some(i);
-                        self.apply_focus();
-                    }
-                }
-                self.last_x = x;
-                self.last_y = y;
-            }
-            */
-
             unsafe { xlib::XNextEvent(self.display, &mut event); }
 
             match event.get_type() {
-                xlib::MapRequest => self.add_window(event.into()),
-                xlib::UnmapNotify => self.remove_window(event.into()),
+                xlib::MapRequest => self.add_window(unsafe {event.map_request}),
+                xlib::UnmapNotify => self.remove_window(unsafe {event.unmap}),
                 xlib::KeyPress => {
                     let key_event = unsafe { event.key };
                     if key_event.state & self.conf.get_master_key() != 0 && key_event.state & MOD_SHIFT == 0 {
@@ -248,14 +293,9 @@ impl Nwm {
                             },
                             x if x == w_code => {
                                 if let Some(w) = self.focused {
-                                    if self.windows.len() > w {
-                                        unsafe {
-                                            xlib::XUnmapWindow(self.display, self.windows[w]);
-                                        }
-                                        self.windows.remove(w);
-                                    }
+                                    self.close_window(w);
+                                    self.swap_left();
                                 }
-                                self.swap_left();
                             },
                             _ => {}
                         }
@@ -291,8 +331,7 @@ impl Nwm {
                     }
                 }
                 xlib::MappingNotify => {
-                    let mut e = unsafe {event.mapping};
-                    unsafe { xlib::XRefreshKeyboardMapping(&mut e); }
+                    self.refresh_mappings(unsafe {event.mapping});
                 }
                 xlib::CreateNotify | xlib::MapNotify | xlib::DestroyNotify | xlib::ConfigureNotify => {}
                 xlib::ConfigureRequest => self.layout(),
@@ -300,11 +339,6 @@ impl Nwm {
                     warn!("Unknown event: {:#?}", event);
                 }
             }
-        }
-        unsafe {
-            xlib::XUngrabKey(self.display, xlib::AnyKey, xlib::AnyModifier, xlib::XDefaultRootWindow(self.display));
-            xlib::XUngrabPointer(self.display, xlib::CurrentTime);
-            xlib::XCloseDisplay(self.display);
         }
     }
 
@@ -422,19 +456,29 @@ impl Nwm {
     }
 
     fn move_window(&self, w: u64, x: i32, y: i32) {
-        info!("Moved window {w} to {x}:{y}");
+        trace!("Moved window {w} to {x}:{y}");
         unsafe {
             xlib::XMoveWindow(self.display, w, x, y);
         }
     }
     fn resize_window(&self, w: u64, width: u32, height: u32) {
-        info!("Resized window {w} to {width}x{height}");
+        trace!("Resized window {w} to {width}x{height}");
         unsafe {xlib::XResizeWindow(self.display, w, width, height);}
     }
 
     fn keysym_to_keycode(&self, sym: u32) -> u32 {
         unsafe {
             xlib::XKeysymToKeycode(self.display, sym as u64) as u32
+        }
+    }
+}
+
+impl Drop for Nwm {
+    fn drop(&mut self) {
+        unsafe {
+            xlib::XUngrabKey(self.display, xlib::AnyKey, xlib::AnyModifier, xlib::XDefaultRootWindow(self.display));
+            xlib::XUngrabPointer(self.display, xlib::CurrentTime);
+            xlib::XCloseDisplay(self.display);
         }
     }
 }
