@@ -1,4 +1,4 @@
-use std::slice;
+use std::{mem::zeroed, slice};
 
 use log::{error, warn, debug, trace, info};
 
@@ -11,6 +11,8 @@ struct Nwm {
     focused: Option<usize>,
     gap: u8,
     running: bool,
+    last_x: i32,
+    last_y: i32,
     conf: Config
 }
 
@@ -88,10 +90,12 @@ impl Nwm {
             );
         };
 
+
+
         let mut conf = Config::default();
 
         let dirs = platform_dirs::AppDirs::new(Some("nwm"), false).unwrap();
-        std::fs::create_dir(&dirs.config_dir);
+        _ = std::fs::create_dir(&dirs.config_dir);
         let mut conf_dir = dirs.config_dir.clone();
         let mut run_dir = dirs.config_dir.clone();
         conf_dir.push("config.toml");
@@ -105,8 +109,10 @@ impl Nwm {
         }
 
         if run_dir.exists() {
-            std::process::Command::new("sh").arg(run_dir).spawn().unwrap();
+            std::process::Command::new("sh").arg(run_dir).spawn().unwrap().wait().unwrap();
         }
+
+
 
         info!("Everything went well in initialization :DD");
 
@@ -117,20 +123,25 @@ impl Nwm {
                 focused: None,
                 gap: 8,
                 running: true,
-                conf
+                conf,
+                last_x: 0,
+                last_y: 0
             }
         )
     }
 
     fn apply_focus(&self) {
         if let Some(i) = self.focused {
+            if self.windows.len() <= i {
+                return;
+            }
             let w = self.windows[i];
             unsafe {
                 xlib::XRaiseWindow(self.display, w);
                 xlib::XSetInputFocus(
                     self.display,
                     w,
-                    xlib::RevertToPointerRoot,
+                    xlib::RevertToParent,
                     xlib::CurrentTime,
                 );
             }
@@ -142,7 +153,6 @@ impl Nwm {
         unsafe {
             xlib::XGrabKey(self.display, key_code as i32, modifiers, xlib::XDefaultRootWindow(self.display), 1, xlib::GrabModeAsync, xlib::GrabModeAsync);
         }
-
     }
 
     pub fn run(mut self) {
@@ -175,7 +185,44 @@ impl Nwm {
 
         info!("Keybindings were setup");
 
+        unsafe {
+            xlib::XGrabPointer(
+                self.display,
+                xlib::XDefaultRootWindow(self.display),
+                xlib::True,
+                (xlib::PointerMotionMask | xlib::EnterWindowMask) as u32,
+                xlib::GrabModeAsync,
+                xlib::GrabModeAsync,
+                0,
+                0,
+                xlib::CurrentTime,
+            );
+        }
+
         while self.running {
+            /*
+            let mut x = 0;
+            let mut y = 0;
+            // ty to suckless https://git.suckless.org/dwm/file/dwm.c.html
+            unsafe {
+                let mut dummy: WindowId = 0;
+                let mut di = 0;
+                let mut dui = 0;
+                xlib::XQueryPointer(self.display, xlib::XDefaultRootWindow(self.display), &mut dummy, &mut dummy, &mut x, &mut y, &mut di, &mut di, &mut dui);
+            }
+            if !(self.last_x == x && self.last_y == y) {
+                let rects = self.window_rects();
+                for (i, r) in rects.iter().enumerate() {
+                    if x > r.x && x < r.x + r.w {
+                        self.focused = Some(i);
+                        self.apply_focus();
+                    }
+                }
+                self.last_x = x;
+                self.last_y = y;
+            }
+            */
+
             unsafe { xlib::XNextEvent(self.display, &mut event); }
 
             match event.get_type() {
@@ -201,11 +248,14 @@ impl Nwm {
                             },
                             x if x == w_code => {
                                 if let Some(w) = self.focused {
-                                    unsafe {
-                                        xlib::XUnmapWindow(self.display, self.windows[w]);
+                                    if self.windows.len() > w {
+                                        unsafe {
+                                            xlib::XUnmapWindow(self.display, self.windows[w]);
+                                        }
+                                        self.windows.remove(w);
                                     }
-                                    self.windows.remove(w);
                                 }
+                                self.swap_left();
                             },
                             _ => {}
                         }
@@ -228,23 +278,24 @@ impl Nwm {
                 xlib::KeyRelease => {},
                 xlib::MotionNotify => {
                     let motion_event = unsafe {event.motion};
-                    let rects = self.window_rects();
-                    for (i, r) in rects.iter().enumerate() {
-                        if motion_event.x > r.x && motion_event.x < r.x + r.w {
-                            self.focused = Some(i);
-                            self.apply_focus();
+                    if self.last_x != motion_event.x_root && self.last_y != motion_event.y_root {
+                        let rects = self.window_rects();
+                        for (i, r) in rects.iter().enumerate() {
+                            if motion_event.x_root > r.x && motion_event.x_root < r.x + r.w {
+                                self.focused = Some(i);
+                                self.apply_focus();
+                            }
                         }
+                        self.last_x = motion_event.x_root;
+                        self.last_y = motion_event.y_root;
                     }
                 }
                 xlib::MappingNotify => {
                     let mut e = unsafe {event.mapping};
                     unsafe { xlib::XRefreshKeyboardMapping(&mut e); }
                 }
-                xlib::CreateNotify | xlib::MapNotify | xlib::DestroyNotify | xlib::ConfigureNotify => {
-                }
-                xlib::ConfigureRequest => {
-                    self.layout();
-                }
+                xlib::CreateNotify | xlib::MapNotify | xlib::DestroyNotify | xlib::ConfigureNotify => {}
+                xlib::ConfigureRequest => self.layout(),
                 _ => {
                     warn!("Unknown event: {:#?}", event);
                 }
@@ -252,9 +303,9 @@ impl Nwm {
         }
         unsafe {
             xlib::XUngrabKey(self.display, xlib::AnyKey, xlib::AnyModifier, xlib::XDefaultRootWindow(self.display));
+            xlib::XUngrabPointer(self.display, xlib::CurrentTime);
             xlib::XCloseDisplay(self.display);
         }
-
     }
 
     fn window_rects(&self) -> Vec<Rect> {
@@ -308,20 +359,30 @@ impl Nwm {
         self.layout();
     }
 
-    fn screen_size(&self) -> (i16, i16) {
+    fn screen_size(&self) -> (i32, i32) {
         unsafe {
             let mut num: i32 = 0;
-            let screen_pointers = xinerama::XineramaQueryScreens(self.display, &mut num);
-            let screens = slice::from_raw_parts(screen_pointers, num as usize).to_vec();
-            (screens[0].width, screens[0].height)
+            let screens = xinerama::XineramaQueryScreens(self.display, &mut num);
+
+            let mut max_x = 0;
+            let mut max_y = 0;
+
+            for i in 0..num {
+                let s = *screens.add(i as usize);
+                max_x = max_x.max(s.x_org + s.width);
+                max_y = max_y.max(s.y_org + s.height);
+            }
+
+            (max_x as i32, max_y as i32)
         }
     }
     fn swap_left(&mut self) {
         if let Some(i) = self.focused {
-            if i > 0 {
+            if i > 0 && self.windows.len() > i {
                 self.windows.swap(i, i - 1);
                 self.focused = Some(i - 1);
                 self.layout();
+                self.apply_focus();
             }
         }
     }
@@ -332,6 +393,7 @@ impl Nwm {
                 self.windows.swap(i, i + 1);
                 self.focused = Some(i + 1);
                 self.layout();
+                self.apply_focus();
             }
         }
     }
