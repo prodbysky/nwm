@@ -5,8 +5,9 @@ use x11::{xinerama, xlib};
 
 struct Nwm {
     display: *mut xlib::Display,
-    windows: Vec<WindowId>,
-    focused: Option<usize>,
+    workspaces: [Vec<WindowId>; 10],
+    curr_workspace: usize,
+    focused: [Option<usize>; 10],
     gap: u8,
     running: bool,
     last_x: i32,
@@ -117,8 +118,9 @@ impl Nwm {
         Some(
             Self {
                 display,
-                windows: vec![],
-                focused: None,
+                workspaces: Default::default(),
+                curr_workspace: 0,
+                focused: Default::default(),
                 gap: 8,
                 running: true,
                 conf,
@@ -128,12 +130,20 @@ impl Nwm {
         )
     }
 
-    fn apply_focus(&self) {
-        if let Some(i) = self.focused {
-            if self.windows.len() <= i {
+    fn focused(&self) -> Option<usize> {
+        self.focused[self.curr_workspace]
+    }
+
+    fn is_focused(&self) -> bool {
+        self.focused().is_some()
+    }
+
+    fn apply_focus(&mut self) {
+        if let Some(i) = self.focused() {
+            if self.curr_ws().len() <= i {
                 return;
             }
-            let w = self.windows[i];
+            let w = self.workspaces[self.curr_workspace][i];
             unsafe {
                 xlib::XRaiseWindow(self.display, w);
                 xlib::XSetInputFocus(
@@ -170,22 +180,22 @@ impl Nwm {
     }
 
     fn unmap_window(&mut self, window_index: usize) {
-        if window_index < self.windows.len() {
+        if window_index < self.curr_ws().len() {
             unsafe {
-                xlib::XUnmapWindow(self.display, self.windows[window_index]);
+                xlib::XUnmapWindow(self.display, self.curr_ws()[window_index]);
             }
         }
     }
 
     fn forget_window(&mut self, window_index: usize) {
-        if window_index < self.windows.len() {
+        if window_index < self.workspaces[self.curr_workspace].len() {
             self.unmap_window(window_index);
-            self.windows.remove(window_index);
+            self.curr_ws_mut().remove(window_index);
         }
     }
 
     fn close_window(&mut self, window_index: usize) {
-        if self.windows.len() <= window_index {
+        if self.curr_ws().len() <= window_index {
             warn!("Tried to close window that does not exist");
             return;
         }
@@ -197,14 +207,14 @@ impl Nwm {
             let mut prots: *mut xlib::Atom = std::ptr::null_mut();
             let mut count: i32 = 0;
 
-            if xlib::XGetWMProtocols(self.display, self.windows[window_index], &mut prots, &mut count) != 0 {
+            if xlib::XGetWMProtocols(self.display, self.curr_ws()[window_index], &mut prots, &mut count) != 0 {
                 let supported = std::slice::from_raw_parts(prots, count as usize).iter().any(|&x| x == wm_del);
                 xlib::XFree(prots as *mut _);
 
                 if supported {
                     let mut event: xlib::XEvent = std::mem::zeroed();
                     event.client_message.type_ = xlib::ClientMessage;
-                    event.client_message.window = self.windows[window_index];
+                    event.client_message.window = self.curr_ws()[window_index];
                     event.client_message.message_type = wm_prot;
                     event.client_message.format = 32;
                     event.client_message.data.set_long(0, wm_del as i64);
@@ -212,20 +222,27 @@ impl Nwm {
 
                     xlib::XSendEvent(
                         self.display,
-                        self.windows[window_index],
+                        self.curr_ws()[window_index],
                         xlib::False,
                         xlib::NoEventMask,
                         &mut event,
                     );
-                    self.windows.remove(window_index);
+                    self.curr_ws_mut().remove(window_index);
                     return;
                 }
             }
             // fallback for bad clients
-            xlib::XKillClient(self.display, self.windows[window_index]);
-            self.windows.remove(window_index);
+            xlib::XKillClient(self.display, self.curr_ws()[window_index]);
+            self.curr_ws_mut().remove(window_index);
         }
 
+    }
+
+    fn curr_ws_mut(&mut self) -> &mut Vec<WindowId> {
+        &mut self.workspaces[self.curr_workspace]
+    }
+    fn curr_ws(&self) -> &Vec<WindowId> {
+        &self.workspaces[self.curr_workspace]
     }
 
     fn refresh_mappings(&mut self, mut e: x11::xlib::XMappingEvent) {
@@ -244,6 +261,18 @@ impl Nwm {
         let w_code = self.keysym_to_keycode(x11::keysym::XK_W);
         let q_code = self.keysym_to_keycode(x11::keysym::XK_Q);
 
+        let number_codes = [
+            self.keysym_to_keycode(x11::keysym::XK_1),
+            self.keysym_to_keycode(x11::keysym::XK_2),
+            self.keysym_to_keycode(x11::keysym::XK_3),
+            self.keysym_to_keycode(x11::keysym::XK_4),
+            self.keysym_to_keycode(x11::keysym::XK_5),
+            self.keysym_to_keycode(x11::keysym::XK_6),
+            self.keysym_to_keycode(x11::keysym::XK_7),
+            self.keysym_to_keycode(x11::keysym::XK_8),
+            self.keysym_to_keycode(x11::keysym::XK_9),
+        ];
+
         // launchers
         self.grab_key(enter_code, self.conf.get_master_key());
         self.grab_key(space_code, self.conf.get_master_key());
@@ -257,6 +286,11 @@ impl Nwm {
         // navigation
         self.grab_key(h_code, self.conf.get_master_key());
         self.grab_key(l_code, self.conf.get_master_key());
+
+        // workspace nav
+        for c in number_codes {
+            self.grab_key(c, self.conf.get_master_key());
+        }
 
         // motion
         self.grab_key(h_code, self.conf.get_master_key() | MOD_SHIFT);
@@ -292,11 +326,14 @@ impl Nwm {
                                 self.focus_right();
                             },
                             x if x == w_code => {
-                                if let Some(w) = self.focused {
+                                if let Some(w) = self.focused() {
                                     self.close_window(w);
                                     self.swap_left();
                                 }
                             },
+                            x if number_codes.contains(&x) => {
+                                self.switch_ws((x - self.keysym_to_keycode(x11::keysym::XK_1)) as usize);
+                            }
                             _ => {}
                         }
                     } else if key_event.state & self.conf.get_master_key() != 0 && key_event.state & MOD_SHIFT != 0 {
@@ -322,7 +359,7 @@ impl Nwm {
                         let rects = self.window_rects();
                         for (i, r) in rects.iter().enumerate() {
                             if motion_event.x_root > r.x && motion_event.x_root < r.x + r.w {
-                                self.focused = Some(i);
+                                self.focused[self.curr_workspace] = Some(i);
                                 self.apply_focus();
                             }
                         }
@@ -342,11 +379,49 @@ impl Nwm {
         }
     }
 
+    fn focus_on_pointer(&mut self) {
+        let rects = self.window_rects();
+        for (i, r) in rects.iter().enumerate() {
+            if self.last_x > r.x && self.last_x < r.x + r.w {
+                if self.focused().is_none() {
+                    self.focused[self.curr_workspace] = Some(i);
+                }
+                self.apply_focus();
+            }
+        }
+
+    }
+
+    fn switch_ws(&mut self, new_ws: usize) {
+        if new_ws >= self.workspaces.len() || new_ws == self.curr_workspace {
+            return;
+        }
+
+        let old_ws = self.curr_workspace;
+
+        // Unmap old workspace windows
+        for &w in &self.workspaces[old_ws] {
+            unsafe {
+                xlib::XUnmapWindow(self.display, w);
+            }
+        }
+
+        self.curr_workspace = new_ws;
+
+        for &w in &self.workspaces[new_ws] {
+            unsafe {
+                xlib::XMapWindow(self.display, w);
+            }
+        }
+
+        self.layout();
+        self.focus_on_pointer();
+    }
     fn window_rects(&self) -> Vec<Rect> {
         let mut rs = vec![];
         let (sw, sh) = self.screen_size();
 
-        let n = self.windows.len() as i32;
+        let n = self.curr_ws().len() as i32;
         if n == 0 {
             return rs;
         }
@@ -374,19 +449,25 @@ impl Nwm {
 
     fn add_window(&mut self, event: xlib::XMapRequestEvent) {
         unsafe {xlib::XMapWindow(self.display, event.window);}
-        self.windows.push(event.window);
-        self.focused = Some(self.windows.len() - 1);
+        self.curr_ws_mut().push(event.window);
+        self.focused[self.curr_workspace] = Some(self.curr_ws().len() - 1);
         self.layout();
         unsafe {xlib::XMapRaised(self.display, event.window);}
         unsafe {xlib::XSetInputFocus(self.display, event.window, xlib::RevertToPointerRoot, xlib::CurrentTime);}
     }
 
+    fn map_window(&mut self, window_index: usize) {
+        unsafe {
+            xlib::XMapWindow(self.display, self.curr_ws()[window_index]);
+        }
+    }
+
     fn remove_window(&mut self, event: xlib::XUnmapEvent) {
-        if let Some(pos) = self.windows.iter().position(|&w| w == event.window) {
-            self.windows.remove(pos);
-            if let Some(f) = self.focused {
-                if f >= self.windows.len() {
-                    self.focused = self.windows.len().checked_sub(1);
+        if let Some(pos) = self.curr_ws().iter().position(|&w| w == event.window) {
+            self.curr_ws_mut().remove(pos);
+            if let Some(f) = self.focused() {
+                if f >= self.curr_ws().len() {
+                    self.focused[self.curr_workspace] = self.curr_ws().len().checked_sub(1);
                 }
             }
         }
@@ -411,10 +492,10 @@ impl Nwm {
         }
     }
     fn swap_left(&mut self) {
-        if let Some(i) = self.focused {
-            if i > 0 && self.windows.len() > i {
-                self.windows.swap(i, i - 1);
-                self.focused = Some(i - 1);
+        if let Some(i) = self.focused() {
+            if i > 0 && self.curr_ws().len() > i {
+                self.curr_ws_mut().swap(i, i - 1);
+                self.focused[self.curr_workspace] = Some(i - 1);
                 self.layout();
                 self.apply_focus();
             }
@@ -422,10 +503,10 @@ impl Nwm {
     }
 
     fn swap_right(&mut self) {
-        if let Some(i) = self.focused {
-            if i + 1 < self.windows.len() {
-                self.windows.swap(i, i + 1);
-                self.focused = Some(i + 1);
+        if let Some(i) = self.focused() {
+            if i + 1 < self.curr_ws().len() {
+                self.curr_ws_mut().swap(i, i + 1);
+                self.focused[self.curr_workspace]= Some(i + 1);
                 self.layout();
                 self.apply_focus();
             }
@@ -433,23 +514,23 @@ impl Nwm {
     }
 
     fn focus_left(&mut self) {
-        self.focused = self.focused.map(|x| if x == 0 {x} else {x - 1});
+        self.focused[self.curr_workspace] = self.focused[self.curr_workspace].map(|x| if x == 0 {x} else {x - 1});
         self.apply_focus();
     }
     fn focus_right(&mut self) {
-        self.focused = self.focused.map(|x| if self.windows.len() - 1 == x {x} else {x + 1});
+        self.focused[self.curr_workspace]= self.focused[self.curr_workspace].map(|x| if self.curr_ws().len() - 1 == x {x} else {x + 1});
         self.apply_focus();
     }
 
     fn layout(&mut self) {
-        if self.windows.is_empty() {
+        if self.curr_ws().is_empty() {
             return;
         }
 
         let rects = self.window_rects();
 
         for (i, r) in rects.iter().enumerate() {
-            let w = self.windows[i];
+            let w = self.curr_ws()[i];
             self.move_window(w, r.x, r.y);
             self.resize_window(w, r.w as u32, r.h as u32);
         }
