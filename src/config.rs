@@ -1,4 +1,22 @@
 use log::{error, warn};
+
+fn validate_config(cfg: &[Statement]) -> bool {
+    for s in cfg {
+        match s {
+            Statement::Do { action, on } => {
+                let action_alt_count = action.alt_count();
+                let on_alt_count = on.alt_count();
+                if action_alt_count != on_alt_count {
+                    error!("Invalid config found: alternative count missmatched");
+                    return false;
+                }
+            }
+            Statement::Set {..} => {}
+        }
+    }
+    true
+}
+
 pub struct Parser<'a> {
     input: &'a [Token],
 }
@@ -23,7 +41,11 @@ impl<'a> Parser<'a> {
                 }
             }
         }
-        Some(ss)
+        if !validate_config(&ss) {
+            None
+        } else {
+            Some(ss)
+        }
     }
 
     fn parse_do(&mut self) -> Option<Statement> {
@@ -191,6 +213,15 @@ pub enum Action {
     FocusRight,
 }
 
+impl Action {
+    pub fn alt_count(&self) -> Option<usize> {
+        match self {
+            Self::Alt(n) => Some(n.len()),
+            _ => None
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum KeyCombo {
     Char(char),
@@ -205,6 +236,26 @@ pub enum KeyCombo {
         prefixes: Vec<KeyCombo>,
         key: Box<KeyCombo>,
     },
+}
+impl KeyCombo {
+    pub fn alt_count(&self) -> Option<usize> {
+        match self {
+            Self::Alternative(s) => Some(s.len()),
+            Self::Prefixed { prefixes, key } => {
+                let mut count = None;
+                for p in prefixes {
+                    if let Some(c) = p.alt_count() {
+                        count = Some(c);
+                    }
+                }
+                if count.is_none() {
+                    count = key.alt_count();
+                }
+                count
+            }
+            _ => None
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
