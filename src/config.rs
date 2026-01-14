@@ -11,8 +11,8 @@ impl<'a> Parser<'a> {
     pub fn parse(mut self) -> Option<Vec<Statement>> {
         let mut ss = vec![];
         while !self.done() {
-            match self.eat().unwrap() {
-                Token::Word(v) if v.as_str() == "Set" => {
+            match self.expect_word().unwrap() {
+                v if v.as_str() == "Set" => {
                     let var = self.parse_variable()?;
                     let value = match self.eat() {
                         Some(Token::Word(w)) => w,
@@ -31,7 +31,7 @@ impl<'a> Parser<'a> {
                         value: value,
                     });
                 }
-                Token::Word(v) if v.as_str() == "Do" => {
+                v if v.as_str() == "Do" => {
                     let what = self.parse_action()?;
                     match self.eat() {
                         None => {
@@ -60,17 +60,24 @@ impl<'a> Parser<'a> {
     }
 
     fn parse_variable(&mut self) -> Option<Variable> {
-        match self.eat() {
-            Some(Token::Word(x)) if x.as_str() == "Gap" => {
+        match self.expect_word() {
+            Some(x) if x.as_str() == "Gap" => {
                 Some(Variable::Gap)
             }
-            Some(Token::Word(x)) if x.as_str() == "MasterKey" => {
+            Some(x) if x.as_str() == "MasterKey" => {
                 Some(Variable::MasterKey)
             }
             _ => {
                 error!("Expected a variable name to be here");
                 None
             }
+        }
+    }
+
+    fn expect_word(&mut self) -> Option<String> {
+        match self.eat() {
+            Some(Token::Word(w)) => Some(w),
+            _ => None
         }
     }
 
