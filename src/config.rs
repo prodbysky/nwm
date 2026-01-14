@@ -73,6 +73,15 @@ impl<'a> Parser<'a> {
         match self.eat() {
             Some(Token::Word(w)) if w.as_str() == "FocusLeft" => Some(Action::FocusLeft),
             Some(Token::Word(w)) if w.as_str() == "FocusRight" => Some(Action::FocusRight),
+            Some(Token::OpenCurly) => {
+                let mut alts = vec![];
+                while !matches!(self.peek(0), Some(Token::CloseCurly)) {
+                    alts.push(self.parse_action()?);
+                }
+                self.eat();
+                Some(Action::Alt(alts))
+
+            }
             Some(other) => {
                 error!("Unexpected config action found {other:?}");
                 return None;
@@ -90,7 +99,7 @@ impl<'a> Parser<'a> {
         loop {
             let prefix = self.parse_bind_atom(&mut has_alt)?;
             if matches!(self.peek(0), Some(Token::Hyphen)) {
-                self.eat(); // consume '-'
+                self.eat();
                 prefixes.push(prefix);
             } else {
                 return Some(if prefixes.is_empty() {
@@ -128,6 +137,19 @@ impl<'a> Parser<'a> {
                     }
                 }
             }
+            Some(Token::OpenCurly) => {
+                if *has_alt {
+                    error!("Found a second alternative within a pattern");
+                    return None;
+                }
+                *has_alt = true;
+                let mut alts = vec![];
+                while !matches!(self.peek(0), Some(Token::CloseCurly)) {
+                    alts.push(self.parse_bind_atom(has_alt)?);
+                }
+                self.eat();
+                Some(KeyCombo::Alternative(alts))
+            }
             _ => todo!(),
         }
     }
@@ -153,6 +175,7 @@ impl<'a> Parser<'a> {
 
 #[derive(Debug, Clone)]
 pub enum Action {
+    Alt(Vec<Action>),
     FocusLeft,
     FocusRight,
 }

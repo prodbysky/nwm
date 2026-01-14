@@ -2,7 +2,7 @@ Set MasterKey Super
 
 Set Gap 8
 
-* Do {FocusLeft FocusRight} on M-{h l}
+Do {FocusLeft FocusRight} on M-{h l}
 * or
-Do FocusLeft on M-h
+Do FocusLeft on M-{h l}
 Do FocusRight on M-l
