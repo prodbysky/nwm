@@ -13,17 +13,7 @@ impl<'a> Parser<'a> {
         while !self.done() {
             match self.eat().unwrap() {
                 Token::Word(v) if v.as_str() == "Set" => {
-                    let name = match self.eat() {
-                        Some(Token::Word(w)) => w,
-                        Some(other) => {
-                            error!("Unexpected config variable name found {other:?}");
-                            return None;
-                        }
-                        None => {
-                            error!("Expected config variable name");
-                            return None;
-                        }
-                    };
+                    let var = self.parse_variable()?;
                     let value = match self.eat() {
                         Some(Token::Word(w)) => w,
                         Some(Token::Number(w)) => w.to_string(),
@@ -37,7 +27,7 @@ impl<'a> Parser<'a> {
                         }
                     };
                     ss.push(Statement::Set {
-                        var: name,
+                        var,
                         value: value,
                     });
                 }
@@ -67,6 +57,21 @@ impl<'a> Parser<'a> {
             }
         }
         Some(ss)
+    }
+
+    fn parse_variable(&mut self) -> Option<Variable> {
+        match self.eat() {
+            Some(Token::Word(x)) if x.as_str() == "Gap" => {
+                Some(Variable::Gap)
+            }
+            Some(Token::Word(x)) if x.as_str() == "MasterKey" => {
+                Some(Variable::MasterKey)
+            }
+            _ => {
+                error!("Expected a variable name to be here");
+                None
+            }
+        }
     }
 
     fn parse_action(&mut self) -> Option<Action> {
@@ -197,8 +202,14 @@ pub enum KeyCombo {
 }
 
 #[derive(Debug, Clone)]
+pub enum Variable {
+    Gap,
+    MasterKey
+}
+
+#[derive(Debug, Clone)]
 pub enum Statement {
-    Set { var: String, value: String },
+    Set { var: Variable, value: String },
     Do { action: Action, on: KeyCombo },
 }
 
