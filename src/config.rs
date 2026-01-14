@@ -13,43 +13,10 @@ impl<'a> Parser<'a> {
         while !self.done() {
             match self.expect_word().unwrap() {
                 v if v.as_str() == "Set" => {
-                    let var = self.parse_variable()?;
-                    let value = match self.eat() {
-                        Some(Token::Word(w)) => w,
-                        Some(Token::Number(w)) => w.to_string(),
-                        Some(other) => {
-                            error!("Unexpected config value found {other:?}");
-                            return None;
-                        }
-                        None => {
-                            error!("Expected config value");
-                            return None;
-                        }
-                    };
-                    ss.push(Statement::Set {
-                        var,
-                        value: value,
-                    });
+                    ss.push(self.parse_set()?);
                 }
                 v if v.as_str() == "Do" => {
-                    let what = self.parse_action()?;
-                    match self.eat() {
-                        None => {
-                            error!("Missing `on` keyword");
-                            return None;
-                        }
-                        Some(Token::Word(x)) if x.as_str() == "on" => {}
-                        Some(other) => {
-                            error!("Expected `on` keyword found: {other:?}");
-                            return None;
-                        }
-                    }
-                    let combo = self.parse_bind()?;
-                    dbg!(&combo);
-                    ss.push(Statement::Do {
-                        action: what,
-                        on: combo,
-                    });
+                    ss.push(self.parse_do()?);
                 }
                 x => {
                     warn!("{x:?}");
@@ -59,14 +26,47 @@ impl<'a> Parser<'a> {
         Some(ss)
     }
 
+    fn parse_do(&mut self) -> Option<Statement> {
+        let what = self.parse_action()?;
+        match self.eat() {
+            None => {
+                error!("Missing `on` keyword");
+                return None;
+            }
+            Some(Token::Word(x)) if x.as_str() == "on" => {}
+            Some(other) => {
+                error!("Expected `on` keyword found: {other:?}");
+                return None;
+            }
+        }
+        let combo = self.parse_bind()?;
+        Some(Statement::Do {
+            action: what,
+            on: combo,
+        })
+    }
+
+    fn parse_set(&mut self) -> Option<Statement> {
+        let var = self.parse_variable()?;
+        let value = match self.eat() {
+            Some(Token::Word(w)) => w,
+            Some(Token::Number(w)) => w.to_string(),
+            Some(other) => {
+                error!("Unexpected config value found {other:?}");
+                return None;
+            }
+            None => {
+                error!("Expected config value");
+                return None;
+            }
+        };
+        Some(Statement::Set { var, value: value })
+    }
+
     fn parse_variable(&mut self) -> Option<Variable> {
         match self.expect_word() {
-            Some(x) if x.as_str() == "Gap" => {
-                Some(Variable::Gap)
-            }
-            Some(x) if x.as_str() == "MasterKey" => {
-                Some(Variable::MasterKey)
-            }
+            Some(x) if x.as_str() == "Gap" => Some(Variable::Gap),
+            Some(x) if x.as_str() == "MasterKey" => Some(Variable::MasterKey),
             _ => {
                 error!("Expected a variable name to be here");
                 None
@@ -77,7 +77,7 @@ impl<'a> Parser<'a> {
     fn expect_word(&mut self) -> Option<String> {
         match self.eat() {
             Some(Token::Word(w)) => Some(w),
-            _ => None
+            _ => None,
         }
     }
 
@@ -92,7 +92,6 @@ impl<'a> Parser<'a> {
                 }
                 self.eat();
                 Some(Action::Alt(alts))
-
             }
             Some(other) => {
                 error!("Unexpected config action found {other:?}");
@@ -211,7 +210,7 @@ pub enum KeyCombo {
 #[derive(Debug, Clone)]
 pub enum Variable {
     Gap,
-    MasterKey
+    MasterKey,
 }
 
 #[derive(Debug, Clone)]
