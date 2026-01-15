@@ -7,6 +7,8 @@ pub const DEFAULT_CONFIG: Lazy<Vec<Statement>> = Lazy::new(|| vec![
     Statement::Set { var: Variable::Gap, value: Value::Num(8) },
     Statement::Do { action: Action::FocusLeft, on: KeyCombo { prefixes: vec![SpecialKey::Alt], key: 'h' } },
     Statement::Do { action: Action::FocusRight, on: KeyCombo { prefixes: vec![SpecialKey::Alt], key: 'l' } },
+    Statement::Do { action: Action::MoveLeft, on: KeyCombo { prefixes: vec![SpecialKey::Alt, SpecialKey::Shift], key: 'h' } },
+    Statement::Do { action: Action::MoveRight, on: KeyCombo { prefixes: vec![SpecialKey::Alt, SpecialKey::Shift], key: 'l' } },
     Statement::Do { action: Action::Launcher, on: KeyCombo { prefixes: vec![SpecialKey::Alt], key: ' ' } },
     Statement::Do { action: Action::Terminal, on: KeyCombo { prefixes: vec![SpecialKey::Alt], key: '\n' } },
     Statement::Do { action: Action::CloseWindow, on: KeyCombo { prefixes: vec![SpecialKey::Alt], key: 'w' } },
@@ -36,6 +38,8 @@ impl ToString for Config {
                     _ = match action {
                         Action::FocusLeft => write!(o, "FocusLeft "),
                         Action::FocusRight => write!(o, "FocusRight "),
+                        Action::MoveLeft => write!(o, "MoveLeft "),
+                        Action::MoveRight => write!(o, "MoveRight "),
                         Action::Launcher => write!(o, "Launcher "),
                         Action::Terminal => write!(o, "Terminal "),
                         Action::CloseWindow => write!(o, "CloseWindow "),
@@ -106,6 +110,8 @@ impl<'a> Parser<'a> {
         match self.eat() {
             Some(Token::FocusLeft) => Some(Action::FocusLeft),
             Some(Token::FocusRight) => Some(Action::FocusRight),
+            Some(Token::MoveLeft) => Some(Action::MoveLeft),
+            Some(Token::MoveRight) => Some(Action::MoveRight),
             Some(Token::Launcher) => Some(Action::Launcher),
             Some(Token::Terminal) => Some(Action::Terminal),
             Some(Token::CloseWindow) => Some(Action::CloseWindow),
@@ -253,6 +259,8 @@ impl<'a> Parser<'a> {
 pub enum Action {
     FocusLeft,
     FocusRight,
+    MoveLeft,
+    MoveRight,
     Launcher,
     Terminal,
     CloseWindow,
@@ -347,6 +355,8 @@ enum Token {
     // actions
     FocusLeft,
     FocusRight,
+    MoveLeft,
+    MoveRight,
     Launcher,
     Terminal,
     CloseWindow,
@@ -419,6 +429,12 @@ impl Lexer {
                         }
                         "FocusRight" => {
                             ts.push(Token::FocusRight);
+                        }
+                        "MoveLeft" => {
+                            ts.push(Token::MoveLeft);
+                        }
+                        "MoveRight" => {
+                            ts.push(Token::MoveRight);
                         }
                         "Launcher" => {
                             ts.push(Token::Launcher);

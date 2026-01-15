@@ -1,7 +1,7 @@
 mod config;
 use std::str::FromStr;
 
-use log::{debug, error, info, trace, warn};
+use log::{error, info, trace, warn};
 
 use x11::{xinerama, xlib};
 
@@ -84,8 +84,6 @@ impl Bind {
     }
 }
 
-const MOD_SHIFT: u32 = xlib::ShiftMask;
-
 struct Rect {
     x: i32,
     y: i32,
@@ -145,21 +143,13 @@ fn action_to_fn(action: config::Action) -> fn(&mut Nwm) {
     match action {
         config::Action::FocusLeft => Nwm::focus_left,
         config::Action::FocusRight => Nwm::focus_right,
+        config::Action::MoveLeft => Nwm::swap_left,
+        config::Action::MoveRight => Nwm::swap_right,
         config::Action::Launcher => Nwm::launcher,
         config::Action::Terminal => Nwm::terminal,
         config::Action::CloseWindow => Nwm::close_focused,
         config::Action::NextWs => Nwm::focus_next_ws,
         config::Action::PrevWs => Nwm::focus_prev_ws,
-    }
-}
-
-fn mod_to_mask(m: config::SpecialKey) -> u32 {
-    match m {
-        config::SpecialKey::Alt => xlib::Mod1Mask,
-        config::SpecialKey::Super => xlib::Mod4Mask,
-        config::SpecialKey::Control => xlib::ControlMask,
-        config::SpecialKey::Shift => xlib::ShiftMask,
-        _ => 0,
     }
 }
 
