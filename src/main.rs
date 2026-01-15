@@ -115,6 +115,18 @@ impl Into<u32> for MasterKey {
     }
 }
 
+impl From<config::SpecialKey> for MasterKey {
+    fn from(value: config::SpecialKey) -> Self {
+        match value {
+            config::SpecialKey::Alt => MasterKey::Alt,
+            config::SpecialKey::Shift => MasterKey::Shift,
+            config::SpecialKey::Control => MasterKey::Control,
+            config::SpecialKey::Super => MasterKey::Super,
+            _ => unreachable!()
+        }
+    }
+}
+
 impl FromStr for MasterKey {
     type Err = ();
     fn from_str(s: &str) -> Result<Self, Self::Err> {
@@ -218,7 +230,8 @@ impl Nwm {
                         _ => warn!("Invalid Set statement"),
                     },
 
-                    config::Statement::Do { action, on } => {
+                    config::Statement::Do { action, mut on } => {
+                        on.prefixes.insert(0, master_key.into());
                         let bind = Bind {
                             action: action_to_fn(action),
                             bind: on,

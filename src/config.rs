@@ -208,6 +208,17 @@ pub enum SpecialKey {
     Space,
 }
 
+impl From<crate::MasterKey> for SpecialKey {
+    fn from(value: crate::MasterKey) -> Self {
+        match value {
+            crate::MasterKey::Alt => SpecialKey::Alt,
+            crate::MasterKey::Super => SpecialKey::Super,
+            crate::MasterKey::Shift => SpecialKey::Shift,
+            crate::MasterKey::Control => SpecialKey::Control,
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct KeyCombo {
     pub prefixes: Vec<SpecialKey>,
@@ -241,7 +252,9 @@ pub struct Lexer {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Token {
     Char(char),
+    Number(usize),
 
+    // Keywords
     Do,
     Set,
     On,
@@ -258,6 +271,7 @@ pub enum Token {
     Tab,
     Escape,
 
+    // actions
     FocusLeft,
     FocusRight,
     Launcher,
@@ -266,7 +280,6 @@ pub enum Token {
     NextWs,
     PrevWs,
 
-    Number(usize),
     Hyphen,
 }
 
