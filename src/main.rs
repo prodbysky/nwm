@@ -14,7 +14,6 @@ struct Nwm {
     last_x: i32,
     last_y: i32,
     gap: u8,
-    master_key: MasterKey,
     binds: Vec<Bind>,
 }
 
@@ -173,7 +172,44 @@ fn key_to_keysym(c: char) -> u32 {
     }
 }
 
+
 impl Nwm {
+    fn apply_config(conf: config::Config, display: *mut xlib::Display) -> (u8, MasterKey, Vec<Bind>) {
+        let mut gap = 0;
+        let mut master_key = MasterKey::Alt;
+        let mut binds = vec![];
+        for s in conf.0 {
+            match s {
+                config::Statement::Set { var, value } => match (var, value) {
+                    (config::Variable::Gap, config::Value::Num(n)) => {
+                        gap = n as u8;
+                    }
+                    (config::Variable::MasterKey, config::Value::Key(k)) => {
+                        master_key = match k {
+                            config::SpecialKey::Super => MasterKey::Super,
+                            config::SpecialKey::Shift => MasterKey::Shift,
+                            config::SpecialKey::Alt => MasterKey::Alt,
+                            config::SpecialKey::Control => MasterKey::Control,
+                            _ => continue,
+                        };
+                    }
+                    _ => warn!("Invalid Set statement"),
+                },
+
+                config::Statement::Do { action, mut on } => {
+                    on.prefixes.insert(0, master_key.into());
+                    let bind = Bind {
+                        action: action_to_fn(action),
+                        bind: on,
+                    };
+                    bind.grab(display);
+                    binds.push(bind);
+                }
+            }
+        }
+        (gap, master_key, binds)
+    }
+
     pub fn create(display_name: &str) -> Option<Self> {
         let s = std::ffi::CString::new(display_name).unwrap();
         let display: *mut xlib::Display = unsafe { xlib::XOpenDisplay(s.as_ptr()) };
@@ -196,7 +232,6 @@ impl Nwm {
             );
         };
 
-        let mut conf = vec![];
 
         let dirs = platform_dirs::AppDirs::new(Some("nwm"), false).unwrap();
         _ = std::fs::create_dir(&dirs.config_dir);
@@ -206,43 +241,18 @@ impl Nwm {
         run_dir.push("run.sh");
 
         let mut gap = 0;
-        let mut master_key = MasterKey::Super;
         let mut binds = vec![];
+
+        let conf;
 
         if conf_dir.exists() {
             let content = std::fs::read_to_string(conf_dir).unwrap();
-            conf = config::parse(content).unwrap();
-            for s in conf {
-                match s {
-                    config::Statement::Set { var, value } => match (var, value) {
-                        (config::Variable::Gap, config::Value::Num(n)) => {
-                            gap = n as u8;
-                        }
-                        (config::Variable::MasterKey, config::Value::Key(k)) => {
-                            master_key = match k {
-                                config::SpecialKey::Super => MasterKey::Super,
-                                config::SpecialKey::Shift => MasterKey::Shift,
-                                config::SpecialKey::Alt => MasterKey::Alt,
-                                config::SpecialKey::Control => MasterKey::Control,
-                                _ => continue,
-                            };
-                        }
-                        _ => warn!("Invalid Set statement"),
-                    },
-
-                    config::Statement::Do { action, mut on } => {
-                        on.prefixes.insert(0, master_key.into());
-                        let bind = Bind {
-                            action: action_to_fn(action),
-                            bind: on,
-                        };
-                        bind.grab(display);
-                        binds.push(bind);
-                    }
-                }
-            }
+            conf = config::Config::parse(content).unwrap();
+            (gap, _, binds) = Self::apply_config(conf, display);
         } else {
-            warn!("TODO: Serialize config");
+            conf = config::Config::default();
+            _ = std::fs::write(&conf_dir, conf.to_string());
+            (gap, _, binds) = Self::apply_config(conf, display);
         }
 
         if run_dir.exists() {
@@ -257,7 +267,6 @@ impl Nwm {
             curr_workspace: 0,
             focused: Default::default(),
             gap,
-            master_key,
             running: true,
             last_x: 0,
             last_y: 0,

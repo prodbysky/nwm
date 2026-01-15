@@ -1,10 +1,71 @@
 use log::{error, warn};
+use std::io::Write;
+use once_cell::sync::Lazy;
 
-pub fn parse(input: String) -> Option<Vec<Statement>> {
-    Parser::new(&Lexer::new(input).run()).parse()
+pub const DEFAULT_CONFIG: Lazy<Vec<Statement>> = Lazy::new(|| vec![ 
+    Statement::Set { var: Variable::MasterKey, value: Value::Key(SpecialKey::Alt) },
+    Statement::Set { var: Variable::Gap, value: Value::Num(8) },
+    Statement::Do { action: Action::FocusLeft, on: KeyCombo { prefixes: vec![SpecialKey::Alt], key: 'h' } },
+    Statement::Do { action: Action::FocusRight, on: KeyCombo { prefixes: vec![SpecialKey::Alt], key: 'l' } },
+    Statement::Do { action: Action::Launcher, on: KeyCombo { prefixes: vec![SpecialKey::Alt], key: ' ' } },
+    Statement::Do { action: Action::Terminal, on: KeyCombo { prefixes: vec![SpecialKey::Alt], key: '\n' } },
+    Statement::Do { action: Action::CloseWindow, on: KeyCombo { prefixes: vec![SpecialKey::Alt], key: 'w' } },
+    Statement::Do { action: Action::NextWs, on: KeyCombo { prefixes: vec![SpecialKey::Alt], key: '2' } },
+    Statement::Do { action: Action::PrevWs, on: KeyCombo { prefixes: vec![SpecialKey::Alt], key: '1' } },
+]);
+
+pub struct Config(pub Vec<Statement>);
+
+impl Config {
+    pub fn parse(input: String) -> Option<Self> {
+        Some(Self(Parser::new(&Lexer::new(input).run()).parse()?))
+    }
+
+    pub fn default() -> Self {
+        Self(DEFAULT_CONFIG.clone())
+    }
 }
 
-pub struct Parser<'a> {
+impl ToString for Config {
+    fn to_string(&self) -> String {
+        let mut o = std::io::BufWriter::new(vec![]);
+        for s in &self.0 {
+            match s {
+                Statement::Do { action, on } => {
+                    _ = write!(o, "Do ");
+                    _ = match action {
+                        Action::FocusLeft => write!(o, "FocusLeft "),
+                        Action::FocusRight => write!(o, "FocusRight "),
+                        Action::Launcher => write!(o, "Launcher "),
+                        Action::Terminal => write!(o, "Terminal "),
+                        Action::CloseWindow => write!(o, "CloseWindow "),
+                        Action::NextWs => write!(o, "NextWs "),
+                        Action::PrevWs => write!(o, "PrevWs "),
+                    };
+                    _ = write!(o, "on ");
+                    for p in on.prefixes.iter().skip(1) {
+                        _ = write!(o, "{}-", p.to_string());
+                    }
+                    _ = writeln!(o, "{}", on.key);
+                }
+                Statement::Set { var, value } => {
+                    _ = write!(o, "Set ");
+                    _ = match var {
+                        Variable::MasterKey => write!(o, "MasterKey "),
+                        Variable::Gap => write!(o, "Gap "),
+                    };
+                    _ = match value {
+                        Value::Key(s) => writeln!(o, "{}", s.to_string()),
+                        Value::Num(n) => writeln!(o, "{}", n.to_string()),
+                    }
+                }
+            }
+        }
+        String::from_utf8(o.buffer().to_vec()).unwrap()
+    }
+}
+
+struct Parser<'a> {
     input: &'a [Token],
 }
 
@@ -208,6 +269,18 @@ pub enum SpecialKey {
     Space,
 }
 
+impl ToString for SpecialKey {
+    fn to_string(&self) -> String {
+       match self { 
+            SpecialKey::Alt => "Alt".to_string(),
+            SpecialKey::Shift => "Shift".to_string(),
+            SpecialKey::Control => "Control".to_string(),
+            SpecialKey::Super => "Super".to_string(),
+            SpecialKey::Space => "Space".to_string(),
+       }
+    }
+}
+
 impl From<crate::MasterKey> for SpecialKey {
     fn from(value: crate::MasterKey) -> Self {
         match value {
@@ -244,13 +317,13 @@ pub enum Statement {
 }
 
 #[derive(Debug, Clone)]
-pub struct Lexer {
+struct Lexer {
     input: String,
     pos: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Token {
+enum Token {
     Char(char),
     Number(usize),
 
