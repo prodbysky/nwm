@@ -1,24 +1,7 @@
 use log::{error, warn};
 
-pub fn parse_config(content: String) -> Option<Vec<Statement>> {
-    Parser::new(&Lexer::new(content).run()).parse()
-}
-
-fn validate_config(cfg: &[Statement]) -> bool {
-    for s in cfg {
-        match s {
-            Statement::Do { action, on } => {
-                let action_alt_count = action.alt_count();
-                let on_alt_count = on.alt_count();
-                if action_alt_count != on_alt_count {
-                    error!("Invalid config found: alternative count missmatched");
-                    return false;
-                }
-            }
-            Statement::Set {..} => {}
-        }
-    }
-    true
+pub fn parse(input: String) -> Option<Vec<Statement>> {
+    Parser::new(&Lexer::new(input).run()).parse()
 }
 
 pub struct Parser<'a> {
@@ -33,162 +16,157 @@ impl<'a> Parser<'a> {
     pub fn parse(mut self) -> Option<Vec<Statement>> {
         let mut ss = vec![];
         while !self.done() {
-            match self.expect_word().unwrap() {
-                v if v.as_str() == "Set" => {
-                    ss.push(self.parse_set()?);
-                }
-                v if v.as_str() == "Do" => {
-                    ss.push(self.parse_do()?);
-                }
-                x => {
-                    warn!("{x:?}");
-                }
-            }
+            ss.push(self.parse_stmt()?);
         }
-        if !validate_config(&ss) {
-            None
-        } else {
-            Some(ss)
+        Some(ss)
+    }
+
+    fn parse_stmt(&mut self) -> Option<Statement> {
+        match self.eat() {
+            Some(Token::Do) => self.parse_do(),
+            Some(Token::Set) => self.parse_set(),
+            _ => None,
         }
     }
 
     fn parse_do(&mut self) -> Option<Statement> {
-        let what = self.parse_action()?;
-        match self.eat() {
-            None => {
-                error!("Missing `on` keyword");
-                return None;
-            }
-            Some(Token::Word(x)) if x.as_str() == "on" => {}
-            Some(other) => {
-                error!("Expected `on` keyword found: {other:?}");
-                return None;
-            }
-        }
-        let combo = self.parse_bind()?;
-        Some(Statement::Do {
-            action: what,
-            on: combo,
-        })
+        let action = self.expect_action()?;
+        self.expect_on()?;
+        let on = self.expect_keycombo()?;
+        Some(Statement::Do { action, on })
     }
-
     fn parse_set(&mut self) -> Option<Statement> {
-        let var = self.parse_variable()?;
-        let value = match self.eat() {
-            Some(Token::Word(w)) => w,
-            Some(Token::Number(w)) => w.to_string(),
-            Some(other) => {
-                error!("Unexpected config value found {other:?}");
-                return None;
-            }
-            None => {
-                error!("Expected config value");
-                return None;
-            }
-        };
-        Some(Statement::Set { var, value: value })
+        let var = self.expect_var()?;
+        let value = self.expect_value()?;
+        Some(Statement::Set { var, value })
     }
 
-    fn parse_variable(&mut self) -> Option<Variable> {
-        match self.expect_word() {
-            Some(x) if x.as_str() == "Gap" => Some(Variable::Gap),
-            Some(x) if x.as_str() == "MasterKey" => Some(Variable::MasterKey),
-            _ => {
-                error!("Expected a variable name to be here");
+    fn expect_action(&mut self) -> Option<Action> {
+        match self.eat() {
+            Some(Token::FocusLeft) => Some(Action::FocusLeft),
+            Some(Token::FocusRight) => Some(Action::FocusRight),
+            Some(Token::Launcher) => Some(Action::Launcher),
+            Some(Token::Terminal) => Some(Action::Terminal),
+            Some(Token::CloseWindow) => Some(Action::CloseWindow),
+            Some(Token::NextWs) => Some(Action::NextWs),
+            Some(Token::PrevWs) => Some(Action::PrevWs),
+            other => {
+                error!("Expected a variable name to be here: {other:?}");
                 None
             }
         }
     }
 
-    fn expect_word(&mut self) -> Option<String> {
+    fn expect_on(&mut self) -> Option<()> {
         match self.eat() {
-            Some(Token::Word(w)) => Some(w),
+            Some(Token::On) => Some(()),
+            other => {
+                error!("Expected a `on` to be here: {other:?}");
+                None
+            }
+        }
+    }
+
+    fn expect_var(&mut self) -> Option<Variable> {
+        match self.eat() {
+            Some(Token::Gap) => Some(Variable::Gap),
+            Some(Token::MasterKey) => Some(Variable::MasterKey),
+            other => {
+                error!("Expected a variable name to be here: {other:?}");
+                None
+            }
+        }
+    }
+
+    fn expect_value(&mut self) -> Option<Value> {
+        match self.peek(0).cloned() {
+            Some(Token::Number(n)) => {
+                self.eat();
+                Some(Value::Num(n))
+            }
+            Some(Token::Shift) => {
+                self.eat();
+                Some(Value::Key(SpecialKey::Shift))
+            }
+            Some(Token::Super) => {
+                self.eat();
+                Some(Value::Key(SpecialKey::Super))
+            }
+            Some(Token::Alt) => {
+                self.eat();
+                Some(Value::Key(SpecialKey::Alt))
+            }
+            Some(Token::Control) => {
+                self.eat();
+                Some(Value::Key(SpecialKey::Control))
+            }
+            other => {
+                error!("Unexpected value (number or key): {other:?}");
+                None
+            }
+        }
+    }
+
+    fn expect_mod(&mut self) -> Option<SpecialKey> {
+        match self.peek(0) {
+            Some(Token::Alt) => {
+                self.eat();
+                Some(SpecialKey::Alt)
+            }
+            Some(Token::Super) => {
+                self.eat();
+                Some(SpecialKey::Super)
+            }
+            Some(Token::Shift) => {
+                self.eat();
+                Some(SpecialKey::Shift)
+            }
+            Some(Token::Control) => {
+                self.eat();
+                Some(SpecialKey::Control)
+            }
             _ => None,
         }
     }
 
-    fn parse_action(&mut self) -> Option<Action> {
+    fn expect_dash(&mut self) -> Option<()> {
         match self.eat() {
-            Some(Token::Word(w)) if w.as_str() == "FocusLeft" => Some(Action::FocusLeft),
-            Some(Token::Word(w)) if w.as_str() == "FocusRight" => Some(Action::FocusRight),
-            Some(Token::OpenCurly) => {
-                let mut alts = vec![];
-                while !matches!(self.peek(0), Some(Token::CloseCurly)) {
-                    alts.push(self.parse_action()?);
-                }
-                self.eat();
-                Some(Action::Alt(alts))
-            }
-            Some(other) => {
-                error!("Unexpected config action found {other:?}");
-                return None;
-            }
-            None => {
-                error!("Expected config action name");
-                return None;
+            Some(Token::Hyphen) => Some(()),
+            _ => {
+                error!("Expected a hyphen here");
+                None
             }
         }
     }
 
-    fn parse_bind(&mut self) -> Option<KeyCombo> {
-        let mut prefixes = vec![];
-        let mut has_alt = false;
-        loop {
-            let prefix = self.parse_bind_atom(&mut has_alt)?;
-            if matches!(self.peek(0), Some(Token::Hyphen)) {
-                self.eat();
-                prefixes.push(prefix);
-            } else {
-                return Some(if prefixes.is_empty() {
-                    prefix
-                } else {
-                    KeyCombo::Prefixed {
-                        prefixes,
-                        key: Box::new(prefix),
-                    }
-                });
-            }
+    fn expect_keycombo(&mut self) -> Option<KeyCombo> {
+        let mut mods = vec![];
+        'outer: loop {
+            let modif = match self.expect_mod() {
+                None => {
+                    break 'outer;
+                }
+                Some(t) => t,
+            };
+            mods.push(modif);
+            self.expect_dash()?;
         }
-    }
-
-    fn parse_bind_atom(&mut self, has_alt: &mut bool) -> Option<KeyCombo> {
-        match self.eat() {
-            None => {
+        let key = match self.eat() {
+            Some(Token::Space) => ' ',
+            Some(Token::Return) => '\n',
+            Some(Token::Tab) => '\t',
+            Some(Token::Escape) => '\x1b',
+            Some(Token::Char(c)) => c,
+            Some(Token::Number(c)) => c.to_string().chars().nth(0).unwrap(),
+            k => {
+                error!("Expected a non-special key here: {k:?}");
                 return None;
             }
-            Some(Token::Number(n)) => {
-                return Some(KeyCombo::Char(n.to_string().chars().nth(0).unwrap()));
-            }
-            Some(Token::Word(x)) if x.len() == 1 && x.chars().nth(0).unwrap().is_lowercase() => {
-                return Some(KeyCombo::Char(x.chars().nth(0).unwrap()));
-            }
-            Some(Token::Word(x)) if x.len() == 1 && x.chars().nth(0).unwrap().is_uppercase() => {
-                match x.chars().nth(0).unwrap() {
-                    'M' => Some(KeyCombo::Master),
-                    'A' => Some(KeyCombo::Alt),
-                    'S' => Some(KeyCombo::Space),
-                    'C' => Some(KeyCombo::Control),
-                    'H' => Some(KeyCombo::Shift),
-                    _ => {
-                        todo!()
-                    }
-                }
-            }
-            Some(Token::OpenCurly) => {
-                if *has_alt {
-                    error!("Found a second alternative within a pattern");
-                    return None;
-                }
-                *has_alt = true;
-                let mut alts = vec![];
-                while !matches!(self.peek(0), Some(Token::CloseCurly)) {
-                    alts.push(self.parse_bind_atom(has_alt)?);
-                }
-                self.eat();
-                Some(KeyCombo::Alternative(alts))
-            }
-            _ => todo!(),
-        }
+        };
+        Some(KeyCombo {
+            prefixes: mods,
+            key,
+        })
     }
 
     fn done(&self) -> bool {
@@ -210,67 +188,47 @@ impl<'a> Parser<'a> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Action {
-    Alt(Vec<Action>),
     FocusLeft,
     FocusRight,
+    Launcher,
+    Terminal,
+    CloseWindow,
+    NextWs,
+    PrevWs,
 }
 
-impl Action {
-    pub fn alt_count(&self) -> Option<usize> {
-        match self {
-            Self::Alt(n) => Some(n.len()),
-            _ => None
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub enum KeyCombo {
-    Char(char),
-    Alternative(Vec<KeyCombo>),
-    Master,
-    Super,
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SpecialKey {
     Shift,
-    Alt,
     Control,
+    Alt,
+    Super,
     Space,
-    Prefixed {
-        prefixes: Vec<KeyCombo>,
-        key: Box<KeyCombo>,
-    },
-}
-impl KeyCombo {
-    pub fn alt_count(&self) -> Option<usize> {
-        match self {
-            Self::Alternative(s) => Some(s.len()),
-            Self::Prefixed { prefixes, key } => {
-                let mut count = None;
-                for p in prefixes {
-                    if let Some(c) = p.alt_count() {
-                        count = Some(c);
-                    }
-                }
-                if count.is_none() {
-                    count = key.alt_count();
-                }
-                count
-            }
-            _ => None
-        }
-    }
 }
 
 #[derive(Debug, Clone)]
+pub struct KeyCombo {
+    pub prefixes: Vec<SpecialKey>,
+    pub key: char,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Variable {
     Gap,
     MasterKey,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Value {
+    Num(usize),
+    Key(SpecialKey),
+}
+
 #[derive(Debug, Clone)]
 pub enum Statement {
-    Set { var: Variable, value: String },
+    Set { var: Variable, value: Value },
     Do { action: Action, on: KeyCombo },
 }
 
@@ -282,11 +240,34 @@ pub struct Lexer {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Token {
-    Word(String),
+    Char(char),
+
+    Do,
+    Set,
+    On,
+
+    MasterKey,
+    Gap,
+
+    Shift,
+    Super,
+    Space,
+    Control,
+    Alt,
+    Return,
+    Tab,
+    Escape,
+
+    FocusLeft,
+    FocusRight,
+    Launcher,
+    Terminal,
+    CloseWindow,
+    NextWs,
+    PrevWs,
+
     Number(usize),
     Hyphen,
-    OpenCurly,
-    CloseCurly,
 }
 
 impl Lexer {
@@ -307,7 +288,76 @@ impl Lexer {
                         self.eat();
                     }
                     let end = self.pos;
-                    ts.push(Token::Word(self.input[begin..end].to_string()));
+                    match &self.input[begin..end] {
+                        "Do" => {
+                            ts.push(Token::Do);
+                        }
+                        "Set" => {
+                            ts.push(Token::Set);
+                        }
+                        "on" => {
+                            ts.push(Token::On);
+                        }
+                        "MasterKey" => {
+                            ts.push(Token::MasterKey);
+                        }
+                        "Gap" => {
+                            ts.push(Token::Gap);
+                        }
+                        "Alt" => {
+                            ts.push(Token::Alt);
+                        }
+                        "Control" => {
+                            ts.push(Token::Control);
+                        }
+                        "Shift" => {
+                            ts.push(Token::Shift);
+                        }
+                        "Space" => {
+                            ts.push(Token::Space);
+                        }
+                        "Return" => {
+                            ts.push(Token::Return);
+                        }
+                        "Escape" => {
+                            ts.push(Token::Escape);
+                        }
+                        "Super" => {
+                            ts.push(Token::Super);
+                        }
+                        "Tab" => {
+                            ts.push(Token::Tab);
+                        }
+                        "FocusLeft" => {
+                            ts.push(Token::FocusLeft);
+                        }
+                        "FocusRight" => {
+                            ts.push(Token::FocusRight);
+                        }
+                        "Launcher" => {
+                            ts.push(Token::Launcher);
+                        }
+                        "Terminal" => {
+                            ts.push(Token::Terminal);
+                        }
+                        "CloseWindow" => {
+                            ts.push(Token::CloseWindow);
+                        }
+                        "PrevWs" => {
+                            ts.push(Token::PrevWs);
+                        }
+                        "NextWs" => {
+                            ts.push(Token::NextWs);
+                        }
+                        x if x.len() == 1
+                            && x.chars()
+                                .nth(0)
+                                .is_some_and(|c| c.is_lowercase() || c.is_ascii_digit()) =>
+                        {
+                            ts.push(Token::Char(x.chars().nth(0).unwrap()));
+                        }
+                        o => todo!("invalid ident {o}"),
+                    }
                 }
                 c if c.is_ascii_digit() => {
                     let begin = self.pos;
@@ -320,14 +370,6 @@ impl Lexer {
                 '-' => {
                     self.eat();
                     ts.push(Token::Hyphen);
-                }
-                '{' => {
-                    self.eat();
-                    ts.push(Token::OpenCurly);
-                }
-                '}' => {
-                    self.eat();
-                    ts.push(Token::CloseCurly);
                 }
                 '*' => {
                     while !self.done() && self.peek().unwrap() != '\n' {

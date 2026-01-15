@@ -15,17 +15,73 @@ struct Nwm {
     last_y: i32,
     gap: u8,
     master_key: MasterKey,
-    binds: Vec<Bind>
+    binds: Vec<Bind>,
 }
 
+const IGNORED_MODS: u32 = xlib::LockMask | xlib::Mod2Mask; // CapsLock + NumLock
+
+#[derive(Debug, Clone)]
 struct Bind {
     action: fn(&mut Nwm),
-    bind: config::KeyCombo
+    bind: config::KeyCombo,
+}
+
+fn keycombo_mask(kc: &config::KeyCombo) -> u32 {
+    let mut mask = 0;
+    for m in &kc.prefixes {
+        mask |= match m {
+            config::SpecialKey::Shift => xlib::ShiftMask,
+            config::SpecialKey::Control => xlib::ControlMask,
+            config::SpecialKey::Alt => xlib::Mod1Mask,
+            config::SpecialKey::Super => xlib::Mod4Mask,
+            _ => 0,
+        };
+    }
+    mask
 }
 
 impl Bind {
-    fn try_do(&mut self, nwm: &mut Nwm) {
+    fn grab(&self, display: *mut xlib::Display) {
+        let base_mask = keycombo_mask(&self.bind);
+        let keycode = keysym_to_keycode(key_to_keysym(self.bind.key), display);
 
+        let masks = [
+            base_mask,
+            base_mask | xlib::LockMask,
+            base_mask | xlib::Mod2Mask,
+            base_mask | xlib::LockMask | xlib::Mod2Mask,
+        ];
+
+        for m in masks {
+            unsafe {
+                xlib::XGrabKey(
+                    display,
+                    keycode as i32,
+                    m,
+                    xlib::XDefaultRootWindow(display),
+                    1,
+                    xlib::GrabModeAsync,
+                    xlib::GrabModeAsync,
+                );
+            }
+        }
+    }
+
+    fn try_do(&self, nwm: &mut Nwm, ev: &xlib::XKeyEvent) {
+        let want_keycode = keysym_to_keycode(key_to_keysym(self.bind.key), nwm.display);
+
+        if ev.keycode as u32 != want_keycode {
+            return;
+        }
+
+        let want_mask = keycombo_mask(&self.bind);
+        let actual_mask = ev.state & !IGNORED_MODS;
+
+        if actual_mask != want_mask {
+            return;
+        }
+
+        (self.action)(nwm);
     }
 }
 
@@ -67,13 +123,43 @@ impl FromStr for MasterKey {
             "Alt" => Ok(MasterKey::Alt),
             "Shift" => Ok(MasterKey::Shift),
             "Control" => Ok(MasterKey::Control),
-            _ => Err(())
+            _ => Err(()),
         }
     }
 }
 
-
 pub type WindowId = u64;
+
+fn action_to_fn(action: config::Action) -> fn(&mut Nwm) {
+    match action {
+        config::Action::FocusLeft => Nwm::focus_left,
+        config::Action::FocusRight => Nwm::focus_right,
+        config::Action::Launcher => Nwm::launcher,
+        config::Action::Terminal => Nwm::terminal,
+        config::Action::CloseWindow => Nwm::close_focused,
+        config::Action::NextWs => Nwm::focus_next_ws,
+        config::Action::PrevWs => Nwm::focus_prev_ws,
+    }
+}
+
+fn mod_to_mask(m: config::SpecialKey) -> u32 {
+    match m {
+        config::SpecialKey::Alt => xlib::Mod1Mask,
+        config::SpecialKey::Super => xlib::Mod4Mask,
+        config::SpecialKey::Control => xlib::ControlMask,
+        config::SpecialKey::Shift => xlib::ShiftMask,
+        _ => 0,
+    }
+}
+
+fn key_to_keysym(c: char) -> u32 {
+    match c {
+        ' ' => x11::keysym::XK_space,
+        '\n' => x11::keysym::XK_Return,
+        '\t' => x11::keysym::XK_Tab,
+        _ => c as u32,
+    }
+}
 
 impl Nwm {
     pub fn create(display_name: &str) -> Option<Self> {
@@ -107,58 +193,48 @@ impl Nwm {
         conf_dir.push("config.nwc");
         run_dir.push("run.sh");
 
+        let mut gap = 0;
+        let mut master_key = MasterKey::Super;
+        let mut binds = vec![];
+
         if conf_dir.exists() {
             let content = std::fs::read_to_string(conf_dir).unwrap();
-            conf = config::parse_config(content).unwrap();
+            conf = config::parse(content).unwrap();
+            for s in conf {
+                match s {
+                    config::Statement::Set { var, value } => match (var, value) {
+                        (config::Variable::Gap, config::Value::Num(n)) => {
+                            gap = n as u8;
+                        }
+                        (config::Variable::MasterKey, config::Value::Key(k)) => {
+                            master_key = match k {
+                                config::SpecialKey::Super => MasterKey::Super,
+                                config::SpecialKey::Shift => MasterKey::Shift,
+                                config::SpecialKey::Alt => MasterKey::Alt,
+                                config::SpecialKey::Control => MasterKey::Control,
+                                _ => continue,
+                            };
+                        }
+                        _ => warn!("Invalid Set statement"),
+                    },
+
+                    config::Statement::Do { action, on } => {
+                        let bind = Bind {
+                            action: action_to_fn(action),
+                            bind: on,
+                        };
+                        bind.grab(display);
+                        binds.push(bind);
+                    }
+                }
+            }
         } else {
             warn!("TODO: Serialize config");
         }
 
-
         if run_dir.exists() {
             std::process::Command::new("sh").arg(run_dir).spawn().ok();
         }
-
-        let mut gap = 0;
-        let mut master_key = MasterKey::Super;
-
-        let mut binds = vec![];
-
-        for s in conf {
-            match s {
-                config::Statement::Do { action, on } => {
-                    match action {
-                        config::Action::FocusLeft => {
-                            let b = Bind {
-                                action: Nwm::focus_left,
-                                bind: on
-                            };
-                            binds.push(b);
-                        }
-                        config::Action::FocusRight => {
-                            let b = Bind {
-                                action: Nwm::focus_right,
-                                bind: on
-                            };
-                            binds.push(b);
-                        }
-                        a => todo!("{a:?}")
-                    }
-                    warn!("Skipping `do` statement");
-                }
-                config::Statement::Set { var, value } => {
-                    match var {
-                        config::Variable::Gap => {
-                            gap = value.parse().unwrap();
-                        }
-                        config::Variable::MasterKey => {
-                            master_key = value.parse().unwrap();
-                        }
-                    }
-                }
-            }
-        }
-
 
         info!("Everything went well in initialization :DD");
 
@@ -172,8 +248,18 @@ impl Nwm {
             running: true,
             last_x: 0,
             last_y: 0,
-            binds
+            binds,
         })
+    }
+
+    fn focus_next_ws(&mut self) {
+        self.switch_ws((self.curr_workspace + 1).clamp(0, 10));
+    }
+    fn focus_prev_ws(&mut self) {
+        if self.curr_workspace == 0 {
+            return;
+        }
+        self.switch_ws((self.curr_workspace - 1).clamp(0, 10));
     }
 
     fn focused(&self) -> Option<usize> {
@@ -243,6 +329,12 @@ impl Nwm {
         }
     }
 
+    fn close_focused(&mut self) {
+        if let Some(w) = self.focused() {
+            self.close_window(w);
+        }
+    }
+
     fn close_window(&mut self, window_index: usize) {
         if self.curr_ws().len() <= window_index {
             warn!("Tried to close window that does not exist");
@@ -251,13 +343,13 @@ impl Nwm {
         unsafe {
             let wm_prot = xlib::XInternAtom(
                 self.display,
-                b"WM_PROTOCOLS\0".as_ptr() as *const i8,
+                c"WM_PROTOCOLS".as_ptr(),
                 xlib::False,
             );
 
             let wm_del = xlib::XInternAtom(
                 self.display,
-                b"WM_DELETE_WINDOW\0".as_ptr() as *const i8,
+                c"WM_DELETE_WINDOW".as_ptr(),
                 xlib::False,
             );
 
@@ -321,48 +413,6 @@ impl Nwm {
     pub fn run(mut self) {
         use std::mem::zeroed;
 
-        let enter_code = self.keysym_to_keycode(x11::keysym::XK_Return);
-        let h_code = self.keysym_to_keycode(x11::keysym::XK_H);
-        let l_code = self.keysym_to_keycode(x11::keysym::XK_L);
-        let space_code = self.keysym_to_keycode(x11::keysym::XK_space);
-        let w_code = self.keysym_to_keycode(x11::keysym::XK_W);
-        let q_code = self.keysym_to_keycode(x11::keysym::XK_Q);
-
-        let number_codes = [
-            self.keysym_to_keycode(x11::keysym::XK_1),
-            self.keysym_to_keycode(x11::keysym::XK_2),
-            self.keysym_to_keycode(x11::keysym::XK_3),
-            self.keysym_to_keycode(x11::keysym::XK_4),
-            self.keysym_to_keycode(x11::keysym::XK_5),
-            self.keysym_to_keycode(x11::keysym::XK_6),
-            self.keysym_to_keycode(x11::keysym::XK_7),
-            self.keysym_to_keycode(x11::keysym::XK_8),
-            self.keysym_to_keycode(x11::keysym::XK_9),
-        ];
-
-        // launchers
-        // self.grab_key(enter_code, self.conf.get_master_key());
-        // self.grab_key(space_code, self.conf.get_master_key());
-        //
-        // // close window
-        // self.grab_key(w_code, self.conf.get_master_key());
-        //
-        // // close wm
-        // self.grab_key(q_code, self.conf.get_master_key() | MOD_SHIFT);
-        //
-        // // navigation
-        // self.grab_key(h_code, self.conf.get_master_key());
-        // self.grab_key(l_code, self.conf.get_master_key());
-        //
-        // // workspace nav
-        // for c in number_codes {
-        //     self.grab_key(c, self.conf.get_master_key());
-        // }
-        //
-        // // motion
-        // self.grab_key(h_code, self.conf.get_master_key() | MOD_SHIFT);
-        // self.grab_key(l_code, self.conf.get_master_key() | MOD_SHIFT);
-
         self.grab_pointer();
 
         info!("Keybindings were setup");
@@ -378,54 +428,8 @@ impl Nwm {
                 xlib::UnmapNotify => self.remove_window(unsafe { event.unmap }),
                 xlib::KeyPress => {
                     let key_event = unsafe { event.key };
-                    for b in self.binds {
-                        b.try_do(&mut self);
-                    }
-                    if key_event.state & self.conf.get_master_key() != 0
-                        && key_event.state & MOD_SHIFT == 0
-                    {
-                        match key_event.keycode {
-                            x if x == enter_code => {
-                                std::process::Command::new("alacritty").spawn().unwrap();
-                            }
-                            x if x == space_code => {
-                                std::process::Command::new("dmenu_run").spawn().unwrap();
-                            }
-                            x if x == h_code => {
-                                self.focus_left();
-                            }
-                            x if x == l_code => {
-                                self.focus_right();
-                            }
-                            x if x == w_code => {
-                                if let Some(w) = self.focused() {
-                                    self.close_window(w);
-                                    self.swap_left();
-                                }
-                            }
-                            x if number_codes.contains(&x) => {
-                                self.switch_ws(
-                                    (x - self.keysym_to_keycode(x11::keysym::XK_1)) as usize,
-                                );
-                            }
-                            _ => {}
-                        }
-                    } else if key_event.state & self.conf.get_master_key() != 0
-                        && key_event.state & MOD_SHIFT != 0
-                    {
-                        match key_event.keycode {
-                            x if x == h_code => {
-                                self.swap_left();
-                            }
-                            x if x == l_code => {
-                                self.swap_right();
-                            }
-                            x if x == q_code => {
-                                info!("Exiting nwm, byee!");
-                                self.running = false;
-                            }
-                            _ => {}
-                        }
+                    for b in self.binds.clone() {
+                        b.try_do(&mut self, &key_event);
                     }
                 }
                 xlib::KeyRelease => {}
@@ -602,6 +606,14 @@ impl Nwm {
         }
     }
 
+    fn launcher(&mut self) {
+        std::process::Command::new("dmenu_run").spawn().unwrap();
+    }
+
+    fn terminal(&mut self) {
+        std::process::Command::new("alacritty").spawn().unwrap();
+    }
+
     fn focus_left(&mut self) {
         self.focused[self.curr_workspace] =
             self.focused[self.curr_workspace].map(|x| if x == 0 { x } else { x - 1 });
@@ -645,9 +657,10 @@ impl Nwm {
         }
     }
 
-    fn keysym_to_keycode(&self, sym: u32) -> u32 {
-        unsafe { xlib::XKeysymToKeycode(self.display, sym as u64) as u32 }
-    }
+
+}
+fn keysym_to_keycode(sym: u32, display: *mut xlib::Display) -> u32 {
+    unsafe { xlib::XKeysymToKeycode(display, sym as u64) as u32 }
 }
 
 impl Drop for Nwm {
@@ -667,10 +680,6 @@ impl Drop for Nwm {
 
 fn main() {
     env_logger::init();
-    let tokens =
-        dbg!(config::Lexer::new(std::fs::read_to_string("test_config.nwc").unwrap()).run());
-    dbg!(config::Parser::new(&tokens).parse());
-    return;
     let display_name = std::env::var("DISPLAY").unwrap();
     Nwm::create(&display_name).unwrap().run();
 }
