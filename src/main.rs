@@ -1,4 +1,6 @@
 mod config;
+use std::str::FromStr;
+
 use log::{debug, error, info, trace, warn};
 
 use x11::{xinerama, xlib};
@@ -8,11 +10,23 @@ struct Nwm {
     workspaces: [Vec<WindowId>; 10],
     curr_workspace: usize,
     focused: [Option<usize>; 10],
-    gap: u8,
     running: bool,
     last_x: i32,
     last_y: i32,
-    conf: Config,
+    gap: u8,
+    master_key: MasterKey,
+    binds: Vec<Bind>
+}
+
+struct Bind {
+    action: fn(&mut Nwm),
+    bind: config::KeyCombo
+}
+
+impl Bind {
+    fn try_do(&mut self, nwm: &mut Nwm) {
+
+    }
 }
 
 const MOD_SHIFT: u32 = xlib::ShiftMask;
@@ -29,8 +43,9 @@ use serde::{Deserialize, Serialize};
 #[derive(Serialize, Deserialize, Clone, Copy)]
 enum MasterKey {
     Super,
-    Alt,
     Shift,
+    Control,
+    Alt,
 }
 
 impl Into<u32> for MasterKey {
@@ -39,29 +54,24 @@ impl Into<u32> for MasterKey {
             Self::Super => xlib::Mod4Mask,
             Self::Alt => xlib::Mod1Mask,
             Self::Shift => xlib::ShiftMask,
+            Self::Control => xlib::ControlMask,
         }
     }
 }
 
-#[derive(Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-struct Config {
-    master_key: MasterKey,
-}
-
-impl Config {
-    pub fn get_master_key(&self) -> u32 {
-        self.master_key.into()
-    }
-}
-
-impl std::default::Default for Config {
-    fn default() -> Self {
-        Self {
-            master_key: MasterKey::Super,
+impl FromStr for MasterKey {
+    type Err = ();
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "Super" => Ok(MasterKey::Super),
+            "Alt" => Ok(MasterKey::Alt),
+            "Shift" => Ok(MasterKey::Shift),
+            "Control" => Ok(MasterKey::Control),
+            _ => Err(())
         }
     }
 }
+
 
 pub type WindowId = u64;
 
@@ -88,25 +98,67 @@ impl Nwm {
             );
         };
 
-        let mut conf = Config::default();
+        let mut conf = vec![];
 
         let dirs = platform_dirs::AppDirs::new(Some("nwm"), false).unwrap();
         _ = std::fs::create_dir(&dirs.config_dir);
         let mut conf_dir = dirs.config_dir.clone();
         let mut run_dir = dirs.config_dir.clone();
-        conf_dir.push("config.toml");
+        conf_dir.push("config.nwc");
         run_dir.push("run.sh");
 
         if conf_dir.exists() {
             let content = std::fs::read_to_string(conf_dir).unwrap();
-            conf = toml::de::from_str(&content).unwrap();
+            conf = config::parse_config(content).unwrap();
         } else {
-            std::fs::write(conf_dir, toml::ser::to_string_pretty(&conf).unwrap()).unwrap();
+            warn!("TODO: Serialize config");
         }
+
 
         if run_dir.exists() {
             std::process::Command::new("sh").arg(run_dir).spawn().ok();
         }
+
+        let mut gap = 0;
+        let mut master_key = MasterKey::Super;
+
+        let mut binds = vec![];
+
+        for s in conf {
+            match s {
+                config::Statement::Do { action, on } => {
+                    match action {
+                        config::Action::FocusLeft => {
+                            let b = Bind {
+                                action: Nwm::focus_left,
+                                bind: on
+                            };
+                            binds.push(b);
+                        }
+                        config::Action::FocusRight => {
+                            let b = Bind {
+                                action: Nwm::focus_right,
+                                bind: on
+                            };
+                            binds.push(b);
+                        }
+                        a => todo!("{a:?}")
+                    }
+                    warn!("Skipping `do` statement");
+                }
+                config::Statement::Set { var, value } => {
+                    match var {
+                        config::Variable::Gap => {
+                            gap = value.parse().unwrap();
+                        }
+                        config::Variable::MasterKey => {
+                            master_key = value.parse().unwrap();
+                        }
+                    }
+                }
+            }
+        }
+
 
         info!("Everything went well in initialization :DD");
 
@@ -115,11 +167,12 @@ impl Nwm {
             workspaces: Default::default(),
             curr_workspace: 0,
             focused: Default::default(),
-            gap: 8,
+            gap,
+            master_key,
             running: true,
-            conf,
             last_x: 0,
             last_y: 0,
+            binds
         })
     }
 
@@ -267,7 +320,7 @@ impl Nwm {
 
     pub fn run(mut self) {
         use std::mem::zeroed;
-        let mut event: xlib::XEvent = unsafe { zeroed() };
+
         let enter_code = self.keysym_to_keycode(x11::keysym::XK_Return);
         let h_code = self.keysym_to_keycode(x11::keysym::XK_H);
         let l_code = self.keysym_to_keycode(x11::keysym::XK_L);
@@ -288,32 +341,33 @@ impl Nwm {
         ];
 
         // launchers
-        self.grab_key(enter_code, self.conf.get_master_key());
-        self.grab_key(space_code, self.conf.get_master_key());
-
-        // close window
-        self.grab_key(w_code, self.conf.get_master_key());
-
-        // close wm
-        self.grab_key(q_code, self.conf.get_master_key() | MOD_SHIFT);
-
-        // navigation
-        self.grab_key(h_code, self.conf.get_master_key());
-        self.grab_key(l_code, self.conf.get_master_key());
-
-        // workspace nav
-        for c in number_codes {
-            self.grab_key(c, self.conf.get_master_key());
-        }
-
-        // motion
-        self.grab_key(h_code, self.conf.get_master_key() | MOD_SHIFT);
-        self.grab_key(l_code, self.conf.get_master_key() | MOD_SHIFT);
+        // self.grab_key(enter_code, self.conf.get_master_key());
+        // self.grab_key(space_code, self.conf.get_master_key());
+        //
+        // // close window
+        // self.grab_key(w_code, self.conf.get_master_key());
+        //
+        // // close wm
+        // self.grab_key(q_code, self.conf.get_master_key() | MOD_SHIFT);
+        //
+        // // navigation
+        // self.grab_key(h_code, self.conf.get_master_key());
+        // self.grab_key(l_code, self.conf.get_master_key());
+        //
+        // // workspace nav
+        // for c in number_codes {
+        //     self.grab_key(c, self.conf.get_master_key());
+        // }
+        //
+        // // motion
+        // self.grab_key(h_code, self.conf.get_master_key() | MOD_SHIFT);
+        // self.grab_key(l_code, self.conf.get_master_key() | MOD_SHIFT);
 
         self.grab_pointer();
 
         info!("Keybindings were setup");
 
+        let mut event: xlib::XEvent = unsafe { zeroed() };
         while self.running {
             unsafe {
                 xlib::XNextEvent(self.display, &mut event);
@@ -324,6 +378,9 @@ impl Nwm {
                 xlib::UnmapNotify => self.remove_window(unsafe { event.unmap }),
                 xlib::KeyPress => {
                     let key_event = unsafe { event.key };
+                    for b in self.binds {
+                        b.try_do(&mut self);
+                    }
                     if key_event.state & self.conf.get_master_key() != 0
                         && key_event.state & MOD_SHIFT == 0
                     {

@@ -1,5 +1,9 @@
 use log::{error, warn};
 
+pub fn parse_config(content: String) -> Option<Vec<Statement>> {
+    Parser::new(&Lexer::new(content).run()).parse()
+}
+
 fn validate_config(cfg: &[Statement]) -> bool {
     for s in cfg {
         match s {
