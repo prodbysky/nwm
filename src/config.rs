@@ -280,7 +280,7 @@ impl<'a> Parser<'a> {
                 self.eat();
                 Some(SpecialKey::Control)
             }
-            _ => None
+            _ => None,
         }
     }
 
@@ -411,6 +411,17 @@ pub enum Key {
     Return,
     Tab,
     Escape,
+}
+
+impl Into<better_x11::KeySym> for Key {
+    fn into(self) -> better_x11::KeySym {
+        match self {
+            Self::Space => better_x11::KeySym(x11::keysym::XK_space),
+            Self::Return => better_x11::KeySym(x11::keysym::XK_Return),
+            Self::Char(c) => better_x11::KeySym(c as u32),
+            other => todo!("{other:?}"),
+        }
+    }
 }
 
 impl Into<better_x11::Key> for Key {

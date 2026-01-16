@@ -43,9 +43,7 @@ fn keycombo_mask(kc: &config::KeyCombo) -> u32 {
 
 impl Bind {
     fn try_do(&self, nwm: &mut Nwm, ev: &xlib::XKeyEvent) {
-        let want_keycode = nwm
-            .x11
-            .keysym_to_keycode(key_to_keysym(self.bind.key.clone()));
+        let want_keycode = nwm.x11.key_to_keycode(self.bind.key);
 
         if ev.keycode as u32 != want_keycode {
             return;
@@ -94,16 +92,6 @@ fn action_to_fn(action: config::Action) -> fn(&mut Nwm) {
         config::Action::CloseWindow => Nwm::close_focused,
         config::Action::NextWs => Nwm::focus_next_ws,
         config::Action::PrevWs => Nwm::focus_prev_ws,
-    }
-}
-
-fn key_to_keysym(key: config::Key) -> u32 {
-    match key {
-        config::Key::Char(c) => c as u32,
-        config::Key::Space => x11::keysym::XK_space,
-        config::Key::Return => x11::keysym::XK_Return,
-        config::Key::Tab => x11::keysym::XK_Tab,
-        config::Key::Escape => x11::keysym::XK_Escape,
     }
 }
 
@@ -156,7 +144,6 @@ impl Nwm {
                         })
                         .collect();
 
-                    ab.keysym_to_keycode(key_to_keysym(on.key));
                     ab.grab_key(&mask, on.key.into());
 
                     binds.push(Bind {

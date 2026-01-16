@@ -267,7 +267,16 @@ impl X11 {
     pub fn keysym_to_keycode(&self, sym: u32) -> u32 {
         unsafe { x11::xlib::XKeysymToKeycode(self.display, sym as u64) as u32 }
     }
+
+    pub fn key_to_keycode<T>(&self, key: T) -> u32
+    where
+        T: Into<KeySym>,
+    {
+        unsafe { x11::xlib::XKeysymToKeycode(self.display, key.into().0 as u64) as u32 }
+    }
 }
+
+pub struct KeySym(pub u32);
 
 impl Drop for X11 {
     fn drop(&mut self) {
