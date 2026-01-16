@@ -1,25 +1,94 @@
-use log::{error, warn};
-use std::io::Write;
+use log::error;
 use once_cell::sync::Lazy;
+use std::io::Write;
 
+use crate::better_x11;
 
 // TODO: Fix the fuckery in the config
 
-pub const DEFAULT_CONFIG: Lazy<Vec<Statement>> = Lazy::new(|| vec![ 
-    Statement::Set { var: Variable::MasterKey, value: Value::Key(SpecialKey::Alt) },
-    Statement::Set { var: Variable::Gap, value: Value::Num(8) },
-    Statement::Set { var: Variable::Terminal, value: Value::String("alacritty".to_string()) },
-    Statement::Set { var: Variable::Launcher, value: Value::String("dmenu_run".to_string()) },
-    Statement::Do { action: Action::FocusLeft, on: KeyCombo { prefixes: vec![SpecialKey::Alt], key: Key::Char('h') } },
-    Statement::Do { action: Action::FocusRight, on: KeyCombo { prefixes: vec![SpecialKey::Alt], key: Key::Char('l') } },
-    Statement::Do { action: Action::MoveLeft, on: KeyCombo { prefixes: vec![SpecialKey::Alt, SpecialKey::Shift], key: Key::Char('h') } },
-    Statement::Do { action: Action::MoveRight, on: KeyCombo { prefixes: vec![SpecialKey::Alt, SpecialKey::Shift], key: Key::Char('l') } },
-    Statement::Do { action: Action::Launcher, on: KeyCombo { prefixes: vec![SpecialKey::Alt], key: Key::Space } },
-    Statement::Do { action: Action::Terminal, on: KeyCombo { prefixes: vec![SpecialKey::Alt], key: Key::Return } },
-    Statement::Do { action: Action::CloseWindow, on: KeyCombo { prefixes: vec![SpecialKey::Alt], key: Key::Char('w') } },
-    Statement::Do { action: Action::NextWs, on: KeyCombo { prefixes: vec![SpecialKey::Alt], key: Key::Char('2') } },
-    Statement::Do { action: Action::PrevWs, on: KeyCombo { prefixes: vec![SpecialKey::Alt], key: Key::Char('1') } },
-]);
+pub const DEFAULT_CONFIG: Lazy<Vec<Statement>> = Lazy::new(|| {
+    vec![
+        Statement::Set {
+            var: Variable::MasterKey,
+            value: Value::Key(SpecialKey::Alt),
+        },
+        Statement::Set {
+            var: Variable::Gap,
+            value: Value::Num(8),
+        },
+        Statement::Set {
+            var: Variable::Terminal,
+            value: Value::String("alacritty".to_string()),
+        },
+        Statement::Set {
+            var: Variable::Launcher,
+            value: Value::String("dmenu_run".to_string()),
+        },
+        Statement::Do {
+            action: Action::FocusLeft,
+            on: KeyCombo {
+                prefixes: vec![SpecialKey::Alt],
+                key: Key::Char('h'),
+            },
+        },
+        Statement::Do {
+            action: Action::FocusRight,
+            on: KeyCombo {
+                prefixes: vec![SpecialKey::Alt],
+                key: Key::Char('l'),
+            },
+        },
+        Statement::Do {
+            action: Action::MoveLeft,
+            on: KeyCombo {
+                prefixes: vec![SpecialKey::Alt, SpecialKey::Shift],
+                key: Key::Char('h'),
+            },
+        },
+        Statement::Do {
+            action: Action::MoveRight,
+            on: KeyCombo {
+                prefixes: vec![SpecialKey::Alt, SpecialKey::Shift],
+                key: Key::Char('l'),
+            },
+        },
+        Statement::Do {
+            action: Action::Launcher,
+            on: KeyCombo {
+                prefixes: vec![SpecialKey::Alt],
+                key: Key::Space,
+            },
+        },
+        Statement::Do {
+            action: Action::Terminal,
+            on: KeyCombo {
+                prefixes: vec![SpecialKey::Alt],
+                key: Key::Return,
+            },
+        },
+        Statement::Do {
+            action: Action::CloseWindow,
+            on: KeyCombo {
+                prefixes: vec![SpecialKey::Alt],
+                key: Key::Char('w'),
+            },
+        },
+        Statement::Do {
+            action: Action::NextWs,
+            on: KeyCombo {
+                prefixes: vec![SpecialKey::Alt],
+                key: Key::Char('2'),
+            },
+        },
+        Statement::Do {
+            action: Action::PrevWs,
+            on: KeyCombo {
+                prefixes: vec![SpecialKey::Alt],
+                key: Key::Char('1'),
+            },
+        },
+    ]
+});
 
 pub struct Config(pub Vec<Statement>);
 
@@ -189,7 +258,7 @@ impl<'a> Parser<'a> {
                 self.eat();
                 Some(Value::String(w))
             }
-            _ => todo!()
+            _ => todo!(),
         }
     }
 
@@ -211,10 +280,7 @@ impl<'a> Parser<'a> {
                 self.eat();
                 Some(SpecialKey::Control)
             }
-            other => {
-                error!("Unexpected token in place of a modifier: {other:?}");
-                None
-            },
+            _ => None,
         }
     }
 
@@ -240,8 +306,8 @@ impl<'a> Parser<'a> {
             mods.push(modif);
             self.expect_dash()?;
         }
-        let key_str = self.expect_key()?; 
-        
+        let key_str = self.expect_key()?;
+
         let key = match key_str.as_str() {
             "Space" => Key::Space,
             "Return" => Key::Return,
@@ -249,7 +315,10 @@ impl<'a> Parser<'a> {
             "Escape" => Key::Escape,
             k if k.len() == 1 => Key::Char(k.chars().next().unwrap()),
             k if k.parse::<u32>().is_ok() => Key::Char(k.chars().next().unwrap()),
-            _ => { error!("Unknown key: {}", key_str); return None; }
+            _ => {
+                error!("Unknown key: {}", key_str);
+                return None;
+            }
         };
         Some(KeyCombo {
             prefixes: mods,
@@ -267,7 +336,7 @@ impl<'a> Parser<'a> {
             other => {
                 error!("Unexpected token in place of a regular key: {other:?}");
                 None
-            },
+            }
         }
     }
 
@@ -314,13 +383,13 @@ pub enum SpecialKey {
 
 impl ToString for SpecialKey {
     fn to_string(&self) -> String {
-       match self { 
+        match self {
             SpecialKey::Alt => "Alt".to_string(),
             SpecialKey::Shift => "Shift".to_string(),
             SpecialKey::Control => "Control".to_string(),
             SpecialKey::Super => "Super".to_string(),
             SpecialKey::Space => "Space".to_string(),
-       }
+        }
     }
 }
 
@@ -335,13 +404,39 @@ impl From<crate::MasterKey> for SpecialKey {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum Key {
     Char(char),
     Space,
     Return,
     Tab,
-    Escape
+    Escape,
+}
+
+impl Into<better_x11::KeySym> for Key {
+    fn into(self) -> better_x11::KeySym {
+        match self {
+            Self::Space => better_x11::KeySym(x11::keysym::XK_space),
+            Self::Return => better_x11::KeySym(x11::keysym::XK_Return),
+            Self::Char(c) => better_x11::KeySym(c as u32),
+            other => todo!("{other:?}"),
+        }
+    }
+}
+
+impl Into<better_x11::Key> for Key {
+    fn into(self) -> better_x11::Key {
+        match self {
+            Self::Space => better_x11::Key::Space,
+            Self::Return => better_x11::Key::Return,
+            Self::Char('w') => better_x11::Key::W,
+            Self::Char('h') => better_x11::Key::H,
+            Self::Char('l') => better_x11::Key::L,
+            Self::Char('1') => better_x11::Key::One,
+            Self::Char('2') => better_x11::Key::Two,
+            other => todo!("{other:?}"),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -355,7 +450,7 @@ pub enum Variable {
     Gap,
     MasterKey,
     Terminal,
-    Launcher
+    Launcher,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -428,7 +523,9 @@ impl Lexer {
                 }
                 c if c.is_ascii_alphabetic() || (c == '_') => {
                     let begin = self.pos;
-                    while !self.done() && self.peek().unwrap().is_ascii_alphabetic() || self.peek().unwrap() == '_' {
+                    while !self.done() && self.peek().unwrap().is_ascii_alphabetic()
+                        || self.peek().unwrap() == '_'
+                    {
                         self.eat();
                     }
                     let end = self.pos;
