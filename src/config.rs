@@ -2,25 +2,31 @@ use log::{error, warn};
 use std::io::Write;
 use once_cell::sync::Lazy;
 
+
+// TODO: Fix the fuckery in the config
+
 pub const DEFAULT_CONFIG: Lazy<Vec<Statement>> = Lazy::new(|| vec![ 
     Statement::Set { var: Variable::MasterKey, value: Value::Key(SpecialKey::Alt) },
     Statement::Set { var: Variable::Gap, value: Value::Num(8) },
-    Statement::Do { action: Action::FocusLeft, on: KeyCombo { prefixes: vec![SpecialKey::Alt], key: 'h' } },
-    Statement::Do { action: Action::FocusRight, on: KeyCombo { prefixes: vec![SpecialKey::Alt], key: 'l' } },
-    Statement::Do { action: Action::MoveLeft, on: KeyCombo { prefixes: vec![SpecialKey::Alt, SpecialKey::Shift], key: 'h' } },
-    Statement::Do { action: Action::MoveRight, on: KeyCombo { prefixes: vec![SpecialKey::Alt, SpecialKey::Shift], key: 'l' } },
-    Statement::Do { action: Action::Launcher, on: KeyCombo { prefixes: vec![SpecialKey::Alt], key: ' ' } },
-    Statement::Do { action: Action::Terminal, on: KeyCombo { prefixes: vec![SpecialKey::Alt], key: '\n' } },
-    Statement::Do { action: Action::CloseWindow, on: KeyCombo { prefixes: vec![SpecialKey::Alt], key: 'w' } },
-    Statement::Do { action: Action::NextWs, on: KeyCombo { prefixes: vec![SpecialKey::Alt], key: '2' } },
-    Statement::Do { action: Action::PrevWs, on: KeyCombo { prefixes: vec![SpecialKey::Alt], key: '1' } },
+    Statement::Set { var: Variable::Terminal, value: Value::String("alacritty".to_string()) },
+    Statement::Set { var: Variable::Launcher, value: Value::String("dmenu_run".to_string()) },
+    Statement::Do { action: Action::FocusLeft, on: KeyCombo { prefixes: vec![SpecialKey::Alt], key: Key::Char('h') } },
+    Statement::Do { action: Action::FocusRight, on: KeyCombo { prefixes: vec![SpecialKey::Alt], key: Key::Char('l') } },
+    Statement::Do { action: Action::MoveLeft, on: KeyCombo { prefixes: vec![SpecialKey::Alt, SpecialKey::Shift], key: Key::Char('h') } },
+    Statement::Do { action: Action::MoveRight, on: KeyCombo { prefixes: vec![SpecialKey::Alt, SpecialKey::Shift], key: Key::Char('l') } },
+    Statement::Do { action: Action::Launcher, on: KeyCombo { prefixes: vec![SpecialKey::Alt], key: Key::Space } },
+    Statement::Do { action: Action::Terminal, on: KeyCombo { prefixes: vec![SpecialKey::Alt], key: Key::Return } },
+    Statement::Do { action: Action::CloseWindow, on: KeyCombo { prefixes: vec![SpecialKey::Alt], key: Key::Char('w') } },
+    Statement::Do { action: Action::NextWs, on: KeyCombo { prefixes: vec![SpecialKey::Alt], key: Key::Char('2') } },
+    Statement::Do { action: Action::PrevWs, on: KeyCombo { prefixes: vec![SpecialKey::Alt], key: Key::Char('1') } },
 ]);
 
 pub struct Config(pub Vec<Statement>);
 
 impl Config {
     pub fn parse(input: String) -> Option<Self> {
-        Some(Self(Parser::new(&Lexer::new(input).run()).parse()?))
+        let tokens = Lexer::new(input).run();
+        Some(Self(Parser::new(&tokens).parse()?))
     }
 
     pub fn default() -> Self {
@@ -34,8 +40,8 @@ impl ToString for Config {
         for s in &self.0 {
             match s {
                 Statement::Do { action, on } => {
-                    _ = write!(o, "Do ");
-                    _ = match action {
+                    let _ = write!(o, "Do ");
+                    let _ = match action {
                         Action::FocusLeft => write!(o, "FocusLeft "),
                         Action::FocusRight => write!(o, "FocusRight "),
                         Action::MoveLeft => write!(o, "MoveLeft "),
@@ -46,22 +52,32 @@ impl ToString for Config {
                         Action::NextWs => write!(o, "NextWs "),
                         Action::PrevWs => write!(o, "PrevWs "),
                     };
-                    _ = write!(o, "on ");
+                    let _ = write!(o, "on ");
                     for p in on.prefixes.iter().skip(1) {
-                        _ = write!(o, "{}-", p.to_string());
+                        let _ = write!(o, "{}-", p.to_string());
                     }
-                    _ = writeln!(o, "{}", on.key);
+                    let key_str = match &on.key {
+                        Key::Char(c) => c.to_string(),
+                        Key::Space => "Space".to_string(),
+                        Key::Return => "Return".to_string(),
+                        Key::Tab => "Tab".to_string(),
+                        Key::Escape => "Escape".to_string(),
+                    };
+                    let _ = writeln!(o, "{}", key_str);
                 }
                 Statement::Set { var, value } => {
-                    _ = write!(o, "Set ");
-                    _ = match var {
+                    let _ = write!(o, "Set ");
+                    let _ = match var {
                         Variable::MasterKey => write!(o, "MasterKey "),
                         Variable::Gap => write!(o, "Gap "),
+                        Variable::Terminal => write!(o, "Terminal "),
+                        Variable::Launcher => write!(o, "Launcher "),
                     };
-                    _ = match value {
+                    let _ = match value {
                         Value::Key(s) => writeln!(o, "{}", s.to_string()),
-                        Value::Num(n) => writeln!(o, "{}", n.to_string()),
-                    }
+                        Value::Num(n) => writeln!(o, "{}", n),
+                        Value::String(n) => writeln!(o, "{}", n),
+                    };
                 }
             }
         }
@@ -138,6 +154,8 @@ impl<'a> Parser<'a> {
         match self.eat() {
             Some(Token::Gap) => Some(Variable::Gap),
             Some(Token::MasterKey) => Some(Variable::MasterKey),
+            Some(Token::Launcher) => Some(Variable::Launcher),
+            Some(Token::Terminal) => Some(Variable::Terminal),
             other => {
                 error!("Expected a variable name to be here: {other:?}");
                 None
@@ -167,10 +185,11 @@ impl<'a> Parser<'a> {
                 self.eat();
                 Some(Value::Key(SpecialKey::Control))
             }
-            other => {
-                error!("Unexpected value (number or key): {other:?}");
-                None
+            Some(Token::Word(w)) => {
+                self.eat();
+                Some(Value::String(w))
             }
+            _ => todo!()
         }
     }
 
@@ -192,7 +211,10 @@ impl<'a> Parser<'a> {
                 self.eat();
                 Some(SpecialKey::Control)
             }
-            _ => None,
+            other => {
+                error!("Unexpected token in place of a modifier: {other:?}");
+                None
+            },
         }
     }
 
@@ -218,22 +240,35 @@ impl<'a> Parser<'a> {
             mods.push(modif);
             self.expect_dash()?;
         }
-        let key = match self.eat() {
-            Some(Token::Space) => ' ',
-            Some(Token::Return) => '\n',
-            Some(Token::Tab) => '\t',
-            Some(Token::Escape) => '\x1b',
-            Some(Token::Char(c)) => c,
-            Some(Token::Number(c)) => c.to_string().chars().nth(0).unwrap(),
-            k => {
-                error!("Expected a non-special key here: {k:?}");
-                return None;
-            }
+        let key_str = self.expect_key()?; 
+        
+        let key = match key_str.as_str() {
+            "Space" => Key::Space,
+            "Return" => Key::Return,
+            "Tab" => Key::Tab,
+            "Escape" => Key::Escape,
+            k if k.len() == 1 => Key::Char(k.chars().next().unwrap()),
+            k if k.parse::<u32>().is_ok() => Key::Char(k.chars().next().unwrap()),
+            _ => { error!("Unknown key: {}", key_str); return None; }
         };
         Some(KeyCombo {
             prefixes: mods,
             key,
         })
+    }
+
+    fn expect_key(&mut self) -> Option<String> {
+        match self.eat() {
+            Some(Token::Char(c)) => Some(c.to_string()),
+            Some(Token::Space) => Some("Space".to_string()),
+            Some(Token::Escape) => Some("Escape".to_string()),
+            Some(Token::Return) => Some("Return".to_string()),
+            Some(Token::Number(n)) => Some(n.to_string()),
+            other => {
+                error!("Unexpected token in place of a regular key: {other:?}");
+                None
+            },
+        }
     }
 
     fn done(&self) -> bool {
@@ -301,21 +336,33 @@ impl From<crate::MasterKey> for SpecialKey {
 }
 
 #[derive(Debug, Clone)]
+pub enum Key {
+    Char(char),
+    Space,
+    Return,
+    Tab,
+    Escape
+}
+
+#[derive(Debug, Clone)]
 pub struct KeyCombo {
     pub prefixes: Vec<SpecialKey>,
-    pub key: char,
+    pub key: Key,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Variable {
     Gap,
     MasterKey,
+    Terminal,
+    Launcher
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Value {
     Num(usize),
     Key(SpecialKey),
+    String(String),
 }
 
 #[derive(Debug, Clone)]
@@ -334,6 +381,7 @@ struct Lexer {
 enum Token {
     Char(char),
     Number(usize),
+    Word(String),
 
     // Keywords
     Do,
@@ -378,79 +426,35 @@ impl Lexer {
                 c if c.is_whitespace() => {
                     self.eat();
                 }
-                c if c.is_ascii_alphabetic() => {
+                c if c.is_ascii_alphabetic() || (c == '_') => {
                     let begin = self.pos;
-                    while !self.done() && self.peek().unwrap().is_ascii_alphabetic() {
+                    while !self.done() && self.peek().unwrap().is_ascii_alphabetic() || self.peek().unwrap() == '_' {
                         self.eat();
                     }
                     let end = self.pos;
                     match &self.input[begin..end] {
-                        "Do" => {
-                            ts.push(Token::Do);
-                        }
-                        "Set" => {
-                            ts.push(Token::Set);
-                        }
-                        "on" => {
-                            ts.push(Token::On);
-                        }
-                        "MasterKey" => {
-                            ts.push(Token::MasterKey);
-                        }
-                        "Gap" => {
-                            ts.push(Token::Gap);
-                        }
-                        "Alt" => {
-                            ts.push(Token::Alt);
-                        }
-                        "Control" => {
-                            ts.push(Token::Control);
-                        }
-                        "Shift" => {
-                            ts.push(Token::Shift);
-                        }
-                        "Space" => {
-                            ts.push(Token::Space);
-                        }
-                        "Return" => {
-                            ts.push(Token::Return);
-                        }
-                        "Escape" => {
-                            ts.push(Token::Escape);
-                        }
-                        "Super" => {
-                            ts.push(Token::Super);
-                        }
-                        "Tab" => {
-                            ts.push(Token::Tab);
-                        }
-                        "FocusLeft" => {
-                            ts.push(Token::FocusLeft);
-                        }
-                        "FocusRight" => {
-                            ts.push(Token::FocusRight);
-                        }
-                        "MoveLeft" => {
-                            ts.push(Token::MoveLeft);
-                        }
-                        "MoveRight" => {
-                            ts.push(Token::MoveRight);
-                        }
-                        "Launcher" => {
-                            ts.push(Token::Launcher);
-                        }
-                        "Terminal" => {
-                            ts.push(Token::Terminal);
-                        }
-                        "CloseWindow" => {
-                            ts.push(Token::CloseWindow);
-                        }
-                        "PrevWs" => {
-                            ts.push(Token::PrevWs);
-                        }
-                        "NextWs" => {
-                            ts.push(Token::NextWs);
-                        }
+                        "Do" => ts.push(Token::Do),
+                        "Set" => ts.push(Token::Set),
+                        "on" => ts.push(Token::On),
+                        "MasterKey" => ts.push(Token::MasterKey),
+                        "Gap" => ts.push(Token::Gap),
+                        "Alt" => ts.push(Token::Alt),
+                        "Control" => ts.push(Token::Control),
+                        "Shift" => ts.push(Token::Shift),
+                        "Space" => ts.push(Token::Space),
+                        "Return" => ts.push(Token::Return),
+                        "Escape" => ts.push(Token::Escape),
+                        "Super" => ts.push(Token::Super),
+                        "Tab" => ts.push(Token::Tab),
+                        "FocusLeft" => ts.push(Token::FocusLeft),
+                        "FocusRight" => ts.push(Token::FocusRight),
+                        "MoveLeft" => ts.push(Token::MoveLeft),
+                        "MoveRight" => ts.push(Token::MoveRight),
+                        "Launcher" => ts.push(Token::Launcher),
+                        "Terminal" => ts.push(Token::Terminal),
+                        "CloseWindow" => ts.push(Token::CloseWindow),
+                        "PrevWs" => ts.push(Token::PrevWs),
+                        "NextWs" => ts.push(Token::NextWs),
                         x if x.len() == 1
                             && x.chars()
                                 .nth(0)
@@ -458,7 +462,9 @@ impl Lexer {
                         {
                             ts.push(Token::Char(x.chars().nth(0).unwrap()));
                         }
-                        o => todo!("invalid ident {o}"),
+                        o => {
+                            ts.push(Token::Word(o.to_string()));
+                        }
                     }
                 }
                 c if c.is_ascii_digit() => {
@@ -479,7 +485,7 @@ impl Lexer {
                     }
                     self.eat();
                 }
-                _ => todo!(),
+                x => todo!("{}", x),
             }
         }
         ts

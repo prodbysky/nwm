@@ -15,6 +15,8 @@ struct Nwm {
     last_y: i32,
     gap: u8,
     binds: Vec<Bind>,
+    terminal: String,
+    launcher: String,
 }
 
 const IGNORED_MODS: u32 = xlib::LockMask | xlib::Mod2Mask; // CapsLock + NumLock
@@ -42,7 +44,7 @@ fn keycombo_mask(kc: &config::KeyCombo) -> u32 {
 impl Bind {
     fn grab(&self, display: *mut xlib::Display) {
         let base_mask = keycombo_mask(&self.bind);
-        let keycode = keysym_to_keycode(key_to_keysym(self.bind.key), display);
+        let keycode = keysym_to_keycode(key_to_keysym(self.bind.key.clone()), display);
 
         let masks = [
             base_mask,
@@ -67,7 +69,7 @@ impl Bind {
     }
 
     fn try_do(&self, nwm: &mut Nwm, ev: &xlib::XKeyEvent) {
-        let want_keycode = keysym_to_keycode(key_to_keysym(self.bind.key), nwm.display);
+        let want_keycode = keysym_to_keycode(key_to_keysym(self.bind.key.clone()), nwm.display);
 
         if ev.keycode as u32 != want_keycode {
             return;
@@ -153,21 +155,25 @@ fn action_to_fn(action: config::Action) -> fn(&mut Nwm) {
     }
 }
 
-fn key_to_keysym(c: char) -> u32 {
-    match c {
-        ' ' => x11::keysym::XK_space,
-        '\n' => x11::keysym::XK_Return,
-        '\t' => x11::keysym::XK_Tab,
-        _ => c as u32,
+fn key_to_keysym(key: config::Key) -> u32 {
+    match key {
+        config::Key::Char(c) => c as u32,
+        config::Key::Space => x11::keysym::XK_space,
+        config::Key::Return => x11::keysym::XK_Return,
+        config::Key::Tab => x11::keysym::XK_Tab,
+        config::Key::Escape => x11::keysym::XK_Escape,
     }
 }
 
 
+
 impl Nwm {
-    fn apply_config(conf: config::Config, display: *mut xlib::Display) -> (u8, MasterKey, Vec<Bind>) {
+    fn apply_config(conf: config::Config, display: *mut xlib::Display) -> (u8, MasterKey, Vec<Bind>, String, String) {
         let mut gap = 0;
         let mut master_key = MasterKey::Alt;
         let mut binds = vec![];
+        let mut terminal = String::new();
+        let mut launcher = String::new();
         for s in conf.0 {
             match s {
                 config::Statement::Set { var, value } => match (var, value) {
@@ -183,6 +189,12 @@ impl Nwm {
                             _ => continue,
                         };
                     }
+                    (config::Variable::Terminal, config::Value::String(k)) => {
+                        terminal = k;
+                    }
+                    (config::Variable::Launcher, config::Value::String(k)) => {
+                        launcher = k;
+                    }
                     _ => warn!("Invalid Set statement"),
                 },
 
@@ -197,7 +209,7 @@ impl Nwm {
                 }
             }
         }
-        (gap, master_key, binds)
+        (gap, master_key, binds, terminal, launcher)
     }
 
     pub fn create(display_name: &str) -> Option<Self> {
@@ -233,16 +245,19 @@ impl Nwm {
         let mut gap = 0;
         let mut binds = vec![];
 
+        let mut launcher = String::new();
+        let mut terminal = String::new();
+
         let conf;
 
         if conf_dir.exists() {
             let content = std::fs::read_to_string(conf_dir).unwrap();
             conf = config::Config::parse(content).unwrap();
-            (gap, _, binds) = Self::apply_config(conf, display);
+            (gap, _, binds, terminal, launcher) = Self::apply_config(conf, display);
         } else {
             conf = config::Config::default();
             _ = std::fs::write(&conf_dir, conf.to_string());
-            (gap, _, binds) = Self::apply_config(conf, display);
+            (gap, _, binds, terminal, launcher) = Self::apply_config(conf, display);
         }
 
         if run_dir.exists() {
@@ -250,6 +265,12 @@ impl Nwm {
         }
 
         info!("Everything went well in initialization :DD");
+        if launcher.is_empty() {
+            warn!("Launcher wasn't set to a program");
+        }
+        if terminal.is_empty() {
+            warn!("Terminal wasn't set to a program");
+        }
 
         Some(Self {
             display,
@@ -261,6 +282,8 @@ impl Nwm {
             last_x: 0,
             last_y: 0,
             binds,
+            launcher,
+            terminal
         })
     }
 
@@ -619,11 +642,11 @@ impl Nwm {
     }
 
     fn launcher(&mut self) {
-        std::process::Command::new("dmenu_run").spawn().unwrap();
+        std::process::Command::new(&self.launcher).spawn().unwrap();
     }
 
     fn terminal(&mut self) {
-        std::process::Command::new("alacritty").spawn().unwrap();
+        std::process::Command::new(&self.terminal).spawn().unwrap();
     }
 
     fn focus_left(&mut self) {
