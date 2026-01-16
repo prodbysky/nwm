@@ -1,9 +1,9 @@
 mod better_x11;
 mod config;
 
-use log::{error, info, trace, warn};
+use log::{info, warn};
 
-use x11::{xinerama, xlib};
+use x11::xlib;
 
 struct Nwm {
     x11: better_x11::X11,
