@@ -223,6 +223,7 @@ impl X11 {
                 max_y = max_y.max(s.y_org + s.height);
             }
 
+            x11::xlib::XFree(screens as *mut _);
             (max_x as i32, max_y as i32)
         }
     }
@@ -259,7 +260,7 @@ impl X11 {
                 Event::ConfigureRequest(unsafe { self.event.configure_request })
             }
             x11::xlib::ClientMessage => Event::ClientMessage(unsafe { self.event.client_message }),
-            x11::xlib::EnterNotify => Event::EnterNotification(unsafe { self.event.visibility }),
+            x11::xlib::EnterNotify => Event::EnterNotification(unsafe { self.event.crossing }),
             e => todo!("{}", e),
         }
     }
@@ -307,7 +308,7 @@ pub enum Event {
     ConfigureNotify(x11::xlib::XConfigureEvent),
     ConfigureRequest(x11::xlib::XConfigureRequestEvent),
     ClientMessage(x11::xlib::XClientMessageEvent),
-    EnterNotification(x11::xlib::XVisibilityEvent),
+    EnterNotification(x11::xlib::XCrossingEvent),
 }
 
 pub enum Key {

@@ -278,7 +278,7 @@ impl Nwm {
                 }
                 Event::Motion(_) => {
                     let (x, y) = self.x11.get_mouse_pos();
-                    if self.last_x != x && self.last_y != y {
+                    if self.last_x != x || self.last_y != y {
                         let rects = self.window_rects();
                         for (i, r) in rects.iter().enumerate() {
                             if x > r.x && x < r.x + r.w {
