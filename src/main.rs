@@ -242,11 +242,11 @@ impl Nwm {
         conf_dir.push("config.nwc");
         run_dir.push("run.sh");
 
-        let mut gap = 0;
+        let gap;
         let mut binds = vec![];
 
-        let mut launcher = String::new();
-        let mut terminal = String::new();
+        let launcher;
+        let terminal;
 
         let conf;
 
