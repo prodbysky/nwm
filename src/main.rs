@@ -1,4 +1,5 @@
 mod better_x11;
+mod better_x11rb;
 mod config;
 
 use log::{info, warn};
@@ -452,5 +453,7 @@ impl Nwm {
 fn main() {
     env_logger::init();
     let display_name = std::env::var("DISPLAY").unwrap();
+    let x11rb = better_x11rb::X11RB::init(&display_name);
+    return;
     Nwm::create(&display_name).unwrap().run();
 }
