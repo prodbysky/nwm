@@ -4,10 +4,8 @@ mod config;
 
 use log::{info, warn};
 
-use x11::xlib;
-
 struct Nwm {
-    x11: better_x11::X11,
+    x11: better_x11rb::X11RB,
     workspaces: [Vec<WindowId>; 10],
     curr_workspace: usize,
     focused: [Option<usize>; 10],
@@ -158,7 +156,7 @@ impl Nwm {
     }
 
     pub fn create(display_name: &str) -> Option<Self> {
-        let mut x11_ab = better_x11::X11::init(display_name).unwrap();
+        let mut x11_ab = better_x11rb::X11RB::init();
 
         x11_ab.grab_pointer();
 
@@ -453,7 +451,7 @@ impl Nwm {
 fn main() {
     env_logger::init();
     let display_name = std::env::var("DISPLAY").unwrap();
-    let x11rb = better_x11rb::X11RB::init(&display_name);
+    let x11rb = better_x11rb::X11RB::init();
     return;
     Nwm::create(&display_name).unwrap().run();
 }
