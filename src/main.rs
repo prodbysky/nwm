@@ -2,6 +2,8 @@ mod better_x11;
 mod better_x11rb;
 mod config;
 
+use better_x11rb::WindowId;
+
 use log::{info, warn};
 
 struct Nwm {
@@ -10,8 +12,8 @@ struct Nwm {
     curr_workspace: usize,
     focused: [Option<usize>; 10],
     running: bool,
-    last_x: i32,
-    last_y: i32,
+    last_x: i16,
+    last_y: i16,
     gap: u8,
     binds: Vec<Bind>,
     terminal: String,
@@ -60,15 +62,14 @@ impl Bind {
 }
 
 struct Rect {
-    x: i32,
-    y: i32,
-    w: i32,
-    h: i32,
+    x: i16,
+    y: i16,
+    w: i16,
+    h: i16,
 }
 
 use serde::{Deserialize, Serialize};
-
-use crate::better_x11::Event;
+use x11rb::protocol::{Event, xproto::{MapRequestEvent, UnmapNotifyEvent}};
 
 #[derive(Serialize, Deserialize, Clone, Copy)]
 enum MasterKey {
@@ -77,8 +78,6 @@ enum MasterKey {
     Control,
     Alt,
 }
-
-pub type WindowId = u64;
 
 fn action_to_fn(action: config::Action) -> fn(&mut Nwm) {
     match action {
@@ -97,7 +96,7 @@ fn action_to_fn(action: config::Action) -> fn(&mut Nwm) {
 impl Nwm {
     fn apply_config(
         conf: config::Config,
-        ab: &mut better_x11::X11,
+        x11_rb: &mut better_x11rb::X11RB,
     ) -> (u8, MasterKey, Vec<Bind>, String, String) {
         let mut gap = 0;
         let mut master_key = MasterKey::Alt;
@@ -143,7 +142,7 @@ impl Nwm {
                         })
                         .collect();
 
-                    ab.grab_key(&mask, on.key.into());
+                    x11_rb.grab_key(&mask, on.key.into());
 
                     binds.push(Bind {
                         action: action_to_fn(action),
@@ -269,14 +268,14 @@ impl Nwm {
 
             match event {
                 Event::MapRequest(e) => self.add_window(e),
-                Event::UnmapNotification(e) => self.remove_window(e),
+                Event::UnmapNotify(e) => self.remove_window(e),
                 Event::KeyPress(e) => {
                     for b in &self.binds.clone() {
                         b.try_do(&mut self, &e);
                     }
                 }
-                Event::Motion(_) => {
-                    let (x, y) = self.x11.get_mouse_pos();
+                Event::MotionNotify(_) => {
+                    let (x, y) = self.x11.mouse_pos();
                     if self.last_x != x || self.last_y != y {
                         let rects = self.window_rects();
                         for (i, r) in rects.iter().enumerate() {
@@ -340,15 +339,15 @@ impl Nwm {
         let mut rs = vec![];
         let (sw, sh) = self.x11.screen_size();
 
-        let n = self.curr_ws().len() as i32;
+        let n = self.curr_ws().len() as i16;
         if n == 0 {
             return rs;
         }
 
-        let gap = self.gap as i32;
+        let gap = self.gap as i16;
         let half_gap = gap / 2;
 
-        let usable_w = sw as i32 - gap * 2;
+        let usable_w = sw as i16 - gap * 2;
         let slot_w = usable_w / n;
 
         for i in 0..n {
@@ -356,7 +355,7 @@ impl Nwm {
             let y = gap;
 
             let w = slot_w - half_gap * 2;
-            let h = sh as i32 - gap * 2;
+            let h = sh as i16 - gap * 2;
 
             if w > 0 && h > 0 {
                 rs.push(Rect { x, y, w, h });
@@ -366,7 +365,7 @@ impl Nwm {
         rs
     }
 
-    fn add_window(&mut self, event: xlib::XMapRequestEvent) {
+    fn add_window(&mut self, event: MapRequestEvent) {
         self.x11.map_window(event.window);
         self.curr_ws_mut().push(event.window);
         self.focused[self.curr_workspace] = Some(self.curr_ws().len() - 1);
@@ -375,7 +374,7 @@ impl Nwm {
         self.x11.focus_window(event.window);
     }
 
-    fn remove_window(&mut self, event: xlib::XUnmapEvent) {
+    fn remove_window(&mut self, event: UnmapNotifyEvent) {
         if let Some(pos) = self.curr_ws().iter().position(|&w| w == event.window) {
             self.curr_ws_mut().remove(pos);
             if let Some(f) = self.focused() {
@@ -451,7 +450,5 @@ impl Nwm {
 fn main() {
     env_logger::init();
     let display_name = std::env::var("DISPLAY").unwrap();
-    let x11rb = better_x11rb::X11RB::init();
-    return;
     Nwm::create(&display_name).unwrap().run();
 }
