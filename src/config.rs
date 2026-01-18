@@ -2,7 +2,7 @@ use log::error;
 use once_cell::sync::Lazy;
 use std::io::Write;
 
-use crate::better_x11;
+use crate::better_x11rb;
 
 // TODO: Fix the fuckery in the config
 
@@ -413,28 +413,14 @@ pub enum Key {
     Escape,
 }
 
-impl Into<better_x11::KeySym> for Key {
-    fn into(self) -> better_x11::KeySym {
+impl Key {
+    pub fn into_x11rb(self) -> u32 {
         match self {
-            Self::Space => better_x11::KeySym(x11::keysym::XK_space),
-            Self::Return => better_x11::KeySym(x11::keysym::XK_Return),
-            Self::Char(c) => better_x11::KeySym(c as u32),
-            other => todo!("{other:?}"),
-        }
-    }
-}
-
-impl Into<better_x11::Key> for Key {
-    fn into(self) -> better_x11::Key {
-        match self {
-            Self::Space => better_x11::Key::Space,
-            Self::Return => better_x11::Key::Return,
-            Self::Char('w') => better_x11::Key::W,
-            Self::Char('h') => better_x11::Key::H,
-            Self::Char('l') => better_x11::Key::L,
-            Self::Char('1') => better_x11::Key::One,
-            Self::Char('2') => better_x11::Key::Two,
-            other => todo!("{other:?}"),
+            Self::Escape => better_x11rb::XK_ESCAPE,
+            Self::Space => ' ' as u32,
+            Self::Return => better_x11rb::XK_RETURN,
+            Self::Tab => better_x11rb::XK_TAB,
+            Self::Char(c) => c as u32,
         }
     }
 }
