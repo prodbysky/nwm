@@ -2,7 +2,7 @@ use log::error;
 use once_cell::sync::Lazy;
 use std::io::Write;
 
-use crate::{better_x11rb};
+use crate::better_x11rb;
 
 // TODO: Fix the fuckery in the config
 

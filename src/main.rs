@@ -1,4 +1,3 @@
-// mod better_x11;
 mod better_x11rb;
 mod config;
 
@@ -67,7 +66,10 @@ struct Rect {
 }
 
 use serde::{Deserialize, Serialize};
-use x11rb::protocol::{Event, xproto::{KeyPressEvent, MapRequestEvent, ModMask, UnmapNotifyEvent}};
+use x11rb::protocol::{
+    Event,
+    xproto::{KeyPressEvent, MapRequestEvent, ModMask, UnmapNotifyEvent},
+};
 
 #[derive(Serialize, Deserialize, Clone, Copy)]
 enum MasterKey {
@@ -135,11 +137,12 @@ impl Nwm {
                             config::SpecialKey::Alt => ModMask::M1,
                             config::SpecialKey::Shift => ModMask::SHIFT,
                             config::SpecialKey::Control => ModMask::CONTROL,
-                            config::SpecialKey::Super => ModMask::M4, 
+                            config::SpecialKey::Super => ModMask::M4,
                             config::SpecialKey::Space => unreachable!(),
-                        }).fold(ModMask::default(), |acc, it| acc | it);
+                        })
+                        .fold(ModMask::default(), |acc, it| acc | it);
 
-                    x11_rb.grab_key(mask, on.key.into_x11rb());
+                    x11_rb.grab_key(mask, on.key.into_x11rb()).unwrap();
 
                     binds.push(Bind {
                         action: action_to_fn(action),
@@ -154,7 +157,7 @@ impl Nwm {
     pub fn create(display_name: &str) -> Option<Self> {
         let mut x11_ab = better_x11rb::X11RB::init();
 
-        x11_ab.grab_pointer();
+        x11_ab.grab_pointer().unwrap();
 
         info!("Succesfully initialized display {} ", display_name);
 
@@ -231,8 +234,8 @@ impl Nwm {
                 return;
             }
             let w = self.workspaces[self.curr_workspace][i];
-            self.x11.raise_window(w);
-            self.x11.focus_window(w);
+            self.x11.raise_window(w).unwrap();
+            self.x11.focus_window(w).unwrap();
             info!("Applied focus to window {w}");
         }
     }
@@ -245,7 +248,7 @@ impl Nwm {
 
     fn close_window(&mut self, window_index: usize) {
         if window_index < self.curr_ws().len() {
-            self.x11.close_window(self.curr_ws()[window_index]);
+            self.x11.close_window(self.curr_ws()[window_index]).unwrap();
             self.curr_ws_mut().remove(window_index);
         }
     }
@@ -267,7 +270,6 @@ impl Nwm {
                 Event::MapRequest(e) => self.add_window(e),
                 Event::UnmapNotify(e) => self.remove_window(e),
                 Event::KeyPress(e) => {
-                    println!("{:X}", e.detail);
                     for b in &self.binds.clone() {
                         b.try_do(&mut self, e);
                     }
@@ -320,13 +322,13 @@ impl Nwm {
         let old_ws = self.curr_workspace;
 
         for &w in &self.workspaces[old_ws] {
-            self.x11.unmap_window(w);
+            self.x11.unmap_window(w).unwrap();
         }
 
         self.curr_workspace = new_ws;
 
         for &w in &self.workspaces[new_ws] {
-            self.x11.map_window(w);
+            self.x11.map_window(w).unwrap();
         }
 
         self.layout();
@@ -364,12 +366,12 @@ impl Nwm {
     }
 
     fn add_window(&mut self, event: MapRequestEvent) {
-        self.x11.map_window(event.window);
+        self.x11.map_window(event.window).unwrap();
         self.curr_ws_mut().push(event.window);
         self.focused[self.curr_workspace] = Some(self.curr_ws().len() - 1);
         self.layout();
-        self.x11.raise_window(event.window);
-        self.x11.focus_window(event.window);
+        self.x11.raise_window(event.window).unwrap();
+        self.x11.focus_window(event.window).unwrap();
     }
 
     fn remove_window(&mut self, event: UnmapNotifyEvent) {
@@ -439,8 +441,8 @@ impl Nwm {
 
         for (i, r) in rects.iter().enumerate() {
             let w = self.curr_ws()[i];
-            self.x11.move_window(w, r.x, r.y);
-            self.x11.resize_window(w, r.w as u32, r.h as u32);
+            self.x11.move_window(w, r.x, r.y).unwrap();
+            self.x11.resize_window(w, r.w as u32, r.h as u32).unwrap();
         }
     }
 }

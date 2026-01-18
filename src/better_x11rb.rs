@@ -1,8 +1,17 @@
 use std::collections::HashMap;
 
-use x11rb::{connection::Connection, protocol::{Event, xproto::{ChangeWindowAttributesAux, ConfigureWindowAux, ConnectionExt, EventMask, GrabMode, InputFocus, Keycode, MappingNotifyEvent, ModMask, Screen, StackMode, Time}}, rust_connection::RustConnection};
-
-use log::warn;
+use x11rb::{
+    connection::Connection,
+    errors::ConnectionError,
+    protocol::{
+        Event,
+        xproto::{
+            ChangeWindowAttributesAux, ConfigureWindowAux, ConnectionExt, EventMask, GrabMode,
+            InputFocus, Keycode, MappingNotifyEvent, ModMask, Screen, StackMode, Time,
+        },
+    },
+    rust_connection::RustConnection,
+};
 
 pub type WindowId = u32;
 
@@ -19,23 +28,22 @@ impl X11RB {
         let screen = &conn.setup().roots[screen_number];
         let root = screen.root;
 
-        let event_mask = 
-            EventMask::SUBSTRUCTURE_REDIRECT |
-            EventMask::SUBSTRUCTURE_NOTIFY |
-            EventMask::KEY_PRESS |
-            EventMask::POINTER_MOTION;
+        let event_mask = EventMask::SUBSTRUCTURE_REDIRECT
+            | EventMask::SUBSTRUCTURE_NOTIFY
+            | EventMask::KEY_PRESS
+            | EventMask::POINTER_MOTION;
 
         conn.change_window_attributes(
-            root, 
+            root,
             &ChangeWindowAttributesAux::new().event_mask(event_mask),
-        ).unwrap();
+        )
+        .unwrap();
 
-        let mut wm = 
-        Self {
+        let mut wm = Self {
             screen: screen.clone(),
             conn,
             pointer_pos: (0, 0),
-            keymap: HashMap::new()
+            keymap: HashMap::new(),
         };
         wm.rebuild_keymap();
 
@@ -49,7 +57,8 @@ impl X11RB {
         let min = setup.min_keycode;
         let max = setup.max_keycode;
 
-        let reply = self.conn
+        let reply = self
+            .conn
             .get_keyboard_mapping(min, max - min + 1)
             .unwrap()
             .reply()
@@ -60,26 +69,24 @@ impl X11RB {
         for (i, syms) in reply.keysyms.chunks(per).enumerate() {
             let keycode = min + i as u8;
             for &keysym in syms {
-                // if (0x20..=0x7e).contains(&keysym) {
-                    self.keymap.insert(keysym, keycode);
-                // }
+                self.keymap.insert(keysym, keycode);
             }
         }
     }
 
-    pub fn grab_pointer(&mut self) {
+    pub fn grab_pointer(&mut self) -> Result<(), ConnectionError> {
         self.conn.grab_pointer(
-            true, 
+            true,
             self.screen.root,
-            x11rb::protocol::xproto::EventMask::POINTER_MOTION |
-            x11rb::protocol::xproto::EventMask::ENTER_WINDOW,
-            x11rb::protocol::xproto::GrabMode::ASYNC, 
-            x11rb::protocol::xproto::GrabMode::ASYNC, 
-            0_u32, 
+            x11rb::protocol::xproto::EventMask::POINTER_MOTION
+                | x11rb::protocol::xproto::EventMask::ENTER_WINDOW,
+            x11rb::protocol::xproto::GrabMode::ASYNC,
+            x11rb::protocol::xproto::GrabMode::ASYNC,
             0_u32,
-            x11rb::protocol::xproto::Time::CURRENT_TIME
-        );
-        self.conn.flush();
+            0_u32,
+            x11rb::protocol::xproto::Time::CURRENT_TIME,
+        )?;
+        self.conn.flush()
     }
 
     pub fn next_event(&mut self) -> Event {
@@ -92,11 +99,9 @@ impl X11RB {
             }
             Event::MappingNotify(e) => {
                 // NOTE: I can't actually understand this if stuff breaks look at THIS
-                self.update_mapping(e); 
+                self.update_mapping(e);
             }
-            _ => {
-
-            }
+            _ => {}
         };
 
         e
@@ -114,44 +119,49 @@ impl X11RB {
         (self.screen.width_in_pixels, self.screen.height_in_pixels)
     }
 
-    pub fn raise_window(&mut self, id: WindowId) {
-        self.conn.map_window(id);
-        self.conn.configure_window(id, &ConfigureWindowAux::new().stack_mode(StackMode::ABOVE));
-        self.conn.flush();
+    pub fn raise_window(&mut self, id: WindowId) -> Result<(), ConnectionError> {
+        self.conn.map_window(id)?;
+        self.conn
+            .configure_window(id, &ConfigureWindowAux::new().stack_mode(StackMode::ABOVE))?;
+        self.conn.flush()
     }
 
-    pub fn map_window(&mut self, id: WindowId) {
-        self.conn.map_window(id);
-        self.conn.flush();
+    pub fn map_window(&mut self, id: WindowId) -> Result<(), ConnectionError> {
+        self.conn.map_window(id)?;
+        self.conn.flush()
     }
 
-    pub fn unmap_window(&mut self, id: WindowId) {
-        self.conn.unmap_window(id);
-        self.conn.flush();
-
+    pub fn unmap_window(&mut self, id: WindowId) -> Result<(), ConnectionError> {
+        self.conn.unmap_window(id)?;
+        self.conn.flush()
     }
 
-    pub fn focus_window(&mut self, id: WindowId) {
-        self.conn.set_input_focus(InputFocus::POINTER_ROOT, id, Time::CURRENT_TIME);
-        self.conn.flush();
+    pub fn focus_window(&mut self, id: WindowId) -> Result<(), ConnectionError> {
+        self.conn
+            .set_input_focus(InputFocus::POINTER_ROOT, id, Time::CURRENT_TIME)?;
+        self.conn.flush()
     }
 
-    pub fn close_window(&mut self, id: WindowId) {
-        self.conn.destroy_window(id);
-        self.conn.flush();
+    pub fn close_window(&mut self, id: WindowId) -> Result<(), ConnectionError> {
+        self.conn.destroy_window(id)?;
+        self.conn.flush()
     }
 
-    pub fn move_window(&mut self, id: WindowId, x: i16, y: i16) {
-        self.conn.configure_window(id, &ConfigureWindowAux::new().x(x as i32).y(y as i32));
-        self.conn.flush();
+    pub fn move_window(&mut self, id: WindowId, x: i16, y: i16) -> Result<(), ConnectionError> {
+        self.conn
+            .configure_window(id, &ConfigureWindowAux::new().x(x as i32).y(y as i32))?;
+        self.conn.flush()
     }
 
-    pub fn resize_window(&mut self, id: WindowId, w: u32, h: u32) {
-        self.conn.configure_window(id, &ConfigureWindowAux::new().width(w as u32).height(h as u32));
-        self.conn.flush();
+    pub fn resize_window(&mut self, id: WindowId, w: u32, h: u32) -> Result<(), ConnectionError> {
+        self.conn.configure_window(
+            id,
+            &ConfigureWindowAux::new().width(w as u32).height(h as u32),
+        )?;
+        self.conn.flush()
     }
 
-    pub fn grab_key(&mut self, mask: ModMask, key: u32) {
+    pub fn grab_key(&mut self, mask: ModMask, key: u32) -> Result<(), ConnectionError> {
         let masks = [
             mask,
             mask | ModMask::LOCK,
@@ -160,9 +170,16 @@ impl X11RB {
         ];
 
         for m in masks {
-            self.conn.grab_key(false, self.screen.root, m, self.key_to_keycode(key) as u8, GrabMode::ASYNC, GrabMode::ASYNC);
+            self.conn.grab_key(
+                false,
+                self.screen.root,
+                m,
+                self.key_to_keycode(key) as u8,
+                GrabMode::ASYNC,
+                GrabMode::ASYNC,
+            )?;
         }
-        self.conn.flush();
+        self.conn.flush()
     }
 
     pub fn key_to_keycode(&self, c: u32) -> u32 {
@@ -170,9 +187,8 @@ impl X11RB {
     }
 }
 pub const XK_BACKSPACE: u32 = 0xff08;
-pub const XK_RETURN:    u32 = 0xff0d;
+pub const XK_RETURN: u32 = 0xff0d;
 // pub const XK_RETURN:    u32 = 0x24;
-pub const XK_ESCAPE:    u32 = 0xff1b;
-pub const XK_TAB:       u32 = 0xff09;
-pub const XK_SPACE:     u32 = 0x0020;
-
+pub const XK_ESCAPE: u32 = 0xff1b;
+pub const XK_TAB: u32 = 0xff09;
+pub const XK_SPACE: u32 = 0x0020;
