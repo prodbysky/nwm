@@ -1,4 +1,4 @@
-mod better_x11;
+// mod better_x11;
 mod better_x11rb;
 mod config;
 
@@ -20,40 +20,38 @@ struct Nwm {
     launcher: String,
 }
 
-const IGNORED_MODS: u32 = xlib::LockMask | xlib::Mod2Mask; // CapsLock + NumLock
-
 #[derive(Debug, Clone)]
 struct Bind {
     action: fn(&mut Nwm),
     bind: config::KeyCombo,
 }
 
-fn keycombo_mask(kc: &config::KeyCombo) -> u32 {
+fn keycombo_mask(kc: &config::KeyCombo) -> u16 {
     let mut mask = 0;
     for m in &kc.prefixes {
         mask |= match m {
-            config::SpecialKey::Shift => xlib::ShiftMask,
-            config::SpecialKey::Control => xlib::ControlMask,
-            config::SpecialKey::Alt => xlib::Mod1Mask,
-            config::SpecialKey::Super => xlib::Mod4Mask,
-            _ => 0,
+            config::SpecialKey::Shift => ModMask::SHIFT,
+            config::SpecialKey::Control => ModMask::CONTROL,
+            config::SpecialKey::Alt => ModMask::M1,
+            config::SpecialKey::Super => ModMask::M4,
+            _ => ModMask::default(),
         };
     }
     mask
 }
 
 impl Bind {
-    fn try_do(&self, nwm: &mut Nwm, ev: &xlib::XKeyEvent) {
-        let want_keycode = nwm.x11.key_to_keycode(self.bind.key);
+    fn try_do(&self, nwm: &mut Nwm, ev: KeyPressEvent) {
+        let want_keycode = nwm.x11.key_to_keycode(self.bind.key.into_x11rb());
 
-        if ev.keycode as u32 != want_keycode {
+        if ev.detail as u32 != want_keycode {
             return;
         }
 
         let want_mask = keycombo_mask(&self.bind);
-        let actual_mask = ev.state & !IGNORED_MODS;
+        let actual_mask = ev.state & !(ModMask::M2 | ModMask::LOCK).bits();
 
-        if actual_mask != want_mask {
+        if actual_mask.bits() != want_mask {
             return;
         }
 
@@ -69,7 +67,7 @@ struct Rect {
 }
 
 use serde::{Deserialize, Serialize};
-use x11rb::protocol::{Event, xproto::{MapRequestEvent, UnmapNotifyEvent}};
+use x11rb::protocol::{Event, xproto::{KeyPressEvent, MapRequestEvent, ModMask, UnmapNotifyEvent}};
 
 #[derive(Serialize, Deserialize, Clone, Copy)]
 enum MasterKey {
@@ -130,19 +128,18 @@ impl Nwm {
                 config::Statement::Do { action, mut on } => {
                     on.prefixes.insert(0, master_key.into());
 
-                    let mask: Vec<_> = on
+                    let mask = on
                         .prefixes
                         .iter()
                         .map(|k| match k {
-                            config::SpecialKey::Alt => better_x11::MaskKey::Alt,
-                            config::SpecialKey::Shift => better_x11::MaskKey::Shift,
-                            config::SpecialKey::Control => better_x11::MaskKey::Control,
-                            config::SpecialKey::Super => better_x11::MaskKey::Super,
+                            config::SpecialKey::Alt => ModMask::M1,
+                            config::SpecialKey::Shift => ModMask::SHIFT,
+                            config::SpecialKey::Control => ModMask::CONTROL,
+                            config::SpecialKey::Super => ModMask::M4, 
                             config::SpecialKey::Space => unreachable!(),
-                        })
-                        .collect();
+                        }).fold(ModMask::default(), |acc, it| acc | it);
 
-                    x11_rb.grab_key(&mask, on.key.into());
+                    x11_rb.grab_key(mask, on.key.into_x11rb());
 
                     binds.push(Bind {
                         action: action_to_fn(action),
@@ -270,8 +267,9 @@ impl Nwm {
                 Event::MapRequest(e) => self.add_window(e),
                 Event::UnmapNotify(e) => self.remove_window(e),
                 Event::KeyPress(e) => {
+                    println!("{:X}", e.detail);
                     for b in &self.binds.clone() {
-                        b.try_do(&mut self, &e);
+                        b.try_do(&mut self, e);
                     }
                 }
                 Event::MotionNotify(_) => {
