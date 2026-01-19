@@ -1,6 +1,8 @@
 mod better_x11rb;
 mod config;
 
+use std::{collections::HashMap, num};
+
 use better_x11rb::WindowId;
 
 use log::{info, warn};
@@ -17,6 +19,46 @@ struct Nwm {
     binds: Vec<Bind>,
     terminal: String,
     launcher: String,
+    window_type_atom: Atom,
+    window_type_dock_atom: Atom,
+    strut_partial_atom: Atom,
+    active_desktop_atom: Atom,
+    struts: HashMap<WindowId, Strut>,
+}
+
+struct Strut {
+    left: u32,
+    right: u32,
+    top: u32,
+    bottom: u32,
+
+    left_start_y: u32,
+    left_end_y: u32,
+    right_start_y: u32,
+    right_end_y: u32,
+    top_start_x: u32,
+    top_end_x: u32,
+    bottom_start_x: u32,
+    bottom_end_x: u32,
+}
+
+impl From<[u32; 12]> for Strut {
+    fn from(value: [u32; 12]) -> Self {
+        Strut {
+            left: value[0],
+            right: value[1],
+            top: value[2],
+            bottom: value[3],
+            left_start_y: value[4],
+            left_end_y: value[5],
+            right_start_y: value[6],
+            right_end_y: value[7],
+            top_start_x: value[8],
+            top_end_x: value[9],
+            bottom_start_x: value[10],
+            bottom_end_x: value[11],
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -58,6 +100,7 @@ impl Bind {
     }
 }
 
+#[derive(Debug, Clone, Copy, Default)]
 struct Rect {
     x: i16,
     y: i16,
@@ -65,10 +108,23 @@ struct Rect {
     h: i16,
 }
 
+#[derive(Debug, Clone, Copy, Default)]
+struct Reserve {
+    x0: u32,
+    y0: u32,
+    x1: u32,
+    y1: u32,
+}
+
 use serde::{Deserialize, Serialize};
-use x11rb::protocol::{
-    Event,
-    xproto::{KeyPressEvent, MapRequestEvent, ModMask, UnmapNotifyEvent},
+use x11rb::{
+    connection::Connection, protocol::{
+        Event,
+        xproto::{
+            Atom, AtomEnum, ConnectionExt, KeyPressEvent, MapRequestEvent, ModMask, PropMode,
+            UnmapNotifyEvent,
+        },
+    }, wrapper::ConnectionExt as OtherConnExt
 };
 
 #[derive(Serialize, Deserialize, Clone, Copy)]
@@ -198,6 +254,24 @@ impl Nwm {
             warn!("Terminal wasn't set to a program");
         }
 
+        let window_type_atom = x11_ab.intern_atom(b"_NET_WM_WINDOW_TYPE");
+        let window_type_dock_atom = x11_ab.intern_atom(b"_NET_WM_WINDOW_TYPE_DOCK");
+        let strut_partial_atom = x11_ab.intern_atom(b"_NET_WM_STRUT_PARTIAL");
+        let num_desktop_atom = x11_ab.intern_atom(b"_NET_NUMBER_OF_DESKTOPS");
+        let active_desktop_atom = x11_ab.intern_atom(b"_NET_CURRENT_DESKTOP");
+        use x11rb::wrapper::ConnectionExt;
+
+        x11_ab
+            .conn
+            .change_property32(
+                PropMode::REPLACE,
+                x11_ab.root_window(),
+                num_desktop_atom,
+                AtomEnum::CARDINAL,
+                &[10],
+            )
+            .unwrap();
+
         Some(Self {
             x11: x11_ab,
             workspaces: Default::default(),
@@ -210,7 +284,62 @@ impl Nwm {
             binds,
             launcher,
             terminal,
+            window_type_atom,
+            window_type_dock_atom,
+            strut_partial_atom,
+            active_desktop_atom,
+            struts: HashMap::new(),
         })
+    }
+
+    fn get_window_type(&self, w: WindowId, atom: Atom) -> Option<Vec<Atom>> {
+        let rep = self
+            .x11
+            .conn
+            .get_property(false, w, atom, AtomEnum::ATOM, 0, 32)
+            .unwrap()
+            .reply()
+            .unwrap();
+
+        if rep.format != 32 {
+            return None;
+        }
+
+        Some(rep.value32().unwrap().collect())
+    }
+
+    fn get_strut_partial(&self, w: WindowId, atom: Atom) -> Option<[u32; 12]> {
+        let rep = self
+            .x11
+            .conn
+            .get_property(false, w, atom, AtomEnum::CARDINAL, 0, 12)
+            .unwrap()
+            .reply()
+            .unwrap();
+
+        let values = rep.value32()?.collect::<Vec<_>>();
+
+        if values.len() < 12 {
+            return None;
+        }
+
+        let mut arr = [0u32; 12];
+
+        arr.copy_from_slice(&values[..12]);
+        Some(arr)
+    }
+
+    fn get_reserved_space(&self) -> Reserve {
+        let mut p = Reserve::default();
+
+        for s in self.struts.values() {
+            p.y0 = p.y0.max(s.top);
+            p.y1 = p.y1.max(s.bottom);
+            p.x0 = p.x0.max(s.left);
+            p.x1 = p.x1.max(s.right);
+        }
+
+        p
     }
 
     fn focus_next_ws(&mut self) {
@@ -230,9 +359,7 @@ impl Nwm {
 
     fn apply_focus(&mut self) {
         if let Some(i) = self.focused() {
-            if self.curr_ws().len() <= i {
-                return;
-            }
+            self.layout();
             let w = self.workspaces[self.curr_workspace][i];
             self.x11.raise_window(w).unwrap();
             self.x11.focus_window(w).unwrap();
@@ -291,10 +418,22 @@ impl Nwm {
                 Event::KeyRelease(_) => {}
                 Event::MappingNotify(_) => {}
                 Event::ConfigureRequest(_) => self.layout(),
-                Event::CreateNotify(_)
-                | Event::MapNotify(_)
-                | Event::DestroyNotify(_)
-                | Event::ConfigureNotify(_) => {}
+                Event::PropertyNotify(e) => {
+                    if e.atom == self.strut_partial_atom {
+                        if let Some(strut) =
+                            self.get_strut_partial(e.window, self.strut_partial_atom)
+                        {
+                            self.struts.insert(e.window, Strut::from(strut));
+                            self.layout();
+                        }
+                    }
+                }
+                Event::DestroyNotify(e) => {
+                    self.struts.remove(&e.window);
+                    self.layout();
+                }
+
+                Event::CreateNotify(_) | Event::MapNotify(_) | Event::ConfigureNotify(_) => {}
                 _ => {
                     warn!("Skipping event: {:#?}", event);
                 }
@@ -319,6 +458,7 @@ impl Nwm {
             return;
         }
 
+
         let old_ws = self.curr_workspace;
 
         for &w in &self.workspaces[old_ws] {
@@ -331,15 +471,29 @@ impl Nwm {
             self.x11.map_window(w).unwrap();
         }
 
+        self.x11.conn.change_property32(PropMode::REPLACE, self.x11.root_window(), self.active_desktop_atom, AtomEnum::CARDINAL, &[(new_ws) as u32]).unwrap();
+        self.x11.conn.flush().unwrap();
+
         self.layout();
         self.focus_on_pointer();
     }
 
     fn window_rects(&self) -> Vec<Rect> {
-        let mut rs = vec![];
-        let (sw, sh) = self.x11.screen_size();
+        if self.curr_ws().is_empty() {
+            return vec![];
+        }
 
-        let n = self.curr_ws().len() as i16;
+        let mut rs = vec![];
+        let (mut sw, mut sh) = self.x11.screen_size();
+
+        let reserved = self.get_reserved_space();
+
+        let offset = (reserved.x0, reserved.y0);
+
+        sw -= (reserved.x0 + reserved.x1) as u16;
+        sh -= (reserved.y0 + reserved.y1) as u16;
+
+        let n = (self.curr_ws().len()) as i16;
         if n == 0 {
             return rs;
         }
@@ -351,8 +505,8 @@ impl Nwm {
         let slot_w = usable_w / n;
 
         for i in 0..n {
-            let x = gap + i * slot_w + half_gap;
-            let y = gap;
+            let x = gap + i * slot_w + half_gap + offset.0 as i16;
+            let y = gap + offset.1 as i16;
 
             let w = slot_w - half_gap * 2;
             let h = sh as i16 - gap * 2;
@@ -365,8 +519,24 @@ impl Nwm {
         rs
     }
 
+    fn window_is_dock(&self, w: WindowId) -> bool {
+        if let Some(types) = self.get_window_type(w, self.window_type_atom) {
+            if types.contains(&self.window_type_dock_atom) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     fn add_window(&mut self, event: MapRequestEvent) {
         self.x11.map_window(event.window).unwrap();
+        if let Some(strut) = self.get_strut_partial(event.window, self.strut_partial_atom) {
+            self.struts.insert(event.window, Strut::from(strut));
+            self.layout();
+        }
+        if self.window_is_dock(event.window) {
+            return;
+        }
         self.curr_ws_mut().push(event.window);
         self.focused[self.curr_workspace] = Some(self.curr_ws().len() - 1);
         self.layout();
@@ -377,6 +547,7 @@ impl Nwm {
     fn remove_window(&mut self, event: UnmapNotifyEvent) {
         if let Some(pos) = self.curr_ws().iter().position(|&w| w == event.window) {
             self.curr_ws_mut().remove(pos);
+            self.struts.remove(&event.window);
             if let Some(f) = self.focused() {
                 if f >= self.curr_ws().len() {
                     self.focused[self.curr_workspace] = self.curr_ws().len().checked_sub(1);
@@ -441,6 +612,28 @@ impl Nwm {
 
         for (i, r) in rects.iter().enumerate() {
             let w = self.curr_ws()[i];
+            if self.window_is_dock(w) {
+                if let Some(strut) = self.get_strut_partial(w, self.strut_partial_atom) {
+                    self.struts.insert(
+                        w,
+                        Strut {
+                            left: strut[0],
+                            right: strut[1],
+                            top: strut[2],
+                            bottom: strut[3],
+                            left_start_y: strut[4],
+                            left_end_y: strut[5],
+                            right_start_y: strut[6],
+                            right_end_y: strut[7],
+                            top_start_x: strut[8],
+                            top_end_x: strut[9],
+                            bottom_start_x: strut[10],
+                            bottom_end_x: strut[11],
+                        },
+                    );
+                    continue;
+                }
+            }
             self.x11.move_window(w, r.x, r.y).unwrap();
             self.x11.resize_window(w, r.w as u32, r.h as u32).unwrap();
         }

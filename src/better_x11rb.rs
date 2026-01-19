@@ -6,8 +6,7 @@ use x11rb::{
     protocol::{
         Event,
         xproto::{
-            ChangeWindowAttributesAux, ConfigureWindowAux, ConnectionExt, EventMask, GrabMode,
-            InputFocus, Keycode, MappingNotifyEvent, ModMask, Screen, StackMode, Time,
+            Atom, ChangeWindowAttributesAux, ConfigureWindowAux, ConnectionExt, EventMask, GrabMode, InputFocus, Keycode, MappingNotifyEvent, ModMask, Screen, StackMode, Time
         },
     },
     rust_connection::RustConnection,
@@ -16,7 +15,7 @@ use x11rb::{
 pub type WindowId = u32;
 
 pub struct X11RB {
-    conn: RustConnection,
+    pub conn: RustConnection,
     screen: Screen,
     pointer_pos: (i16, i16),
     keymap: HashMap<u32, Keycode>,
@@ -31,7 +30,8 @@ impl X11RB {
         let event_mask = EventMask::SUBSTRUCTURE_REDIRECT
             | EventMask::SUBSTRUCTURE_NOTIFY
             | EventMask::KEY_PRESS
-            | EventMask::POINTER_MOTION;
+            | EventMask::POINTER_MOTION
+            | EventMask::PROPERTY_CHANGE;
 
         conn.change_window_attributes(
             root,
@@ -50,9 +50,16 @@ impl X11RB {
         wm
     }
 
+    pub fn root_window(&self) -> u32 {
+        self.screen.root
+    }
+
+    pub fn intern_atom(&mut self, name: &[u8]) -> Atom {
+        self.conn.intern_atom(false, name).unwrap().reply().unwrap().atom
+    }
+
     fn rebuild_keymap(&mut self) {
         self.keymap.clear();
-
         let setup = self.conn.setup();
         let min = setup.min_keycode;
         let max = setup.max_keycode;
