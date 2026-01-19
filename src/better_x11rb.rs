@@ -6,8 +6,7 @@ use x11rb::{
     protocol::{
         Event,
         xproto::{
-            ChangeWindowAttributesAux, ConfigureWindowAux, ConnectionExt, EventMask, GrabMode,
-            InputFocus, Keycode, MappingNotifyEvent, ModMask, Screen, StackMode, Time,
+            Atom, ChangeWindowAttributesAux, ConfigureWindowAux, ConnectionExt, EventMask, GrabMode, InputFocus, Keycode, MappingNotifyEvent, ModMask, Screen, StackMode, Time
         },
     },
     rust_connection::RustConnection,
@@ -53,6 +52,10 @@ impl X11RB {
 
     pub fn root_window(&self) -> u32 {
         self.screen.root
+    }
+
+    pub fn intern_atom(&mut self, name: &[u8]) -> Atom {
+        self.conn.intern_atom(false, name).unwrap().reply().unwrap().atom
     }
 
     fn rebuild_keymap(&mut self) {

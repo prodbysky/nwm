@@ -254,43 +254,12 @@ impl Nwm {
             warn!("Terminal wasn't set to a program");
         }
 
-        let window_type_atom = x11_ab
-            .conn
-            .intern_atom(false, b"_NET_WM_WINDOW_TYPE")
-            .unwrap()
-            .reply()
-            .unwrap()
-            .atom;
-        let window_type_dock_atom = x11_ab
-            .conn
-            .intern_atom(false, b"_NET_WM_WINDOW_TYPE_DOCK")
-            .unwrap()
-            .reply()
-            .unwrap()
-            .atom;
-        let strut_partial_atom = x11_ab
-            .conn
-            .intern_atom(false, b"_NET_WM_STRUT_PARTIAL")
-            .unwrap()
-            .reply()
-            .unwrap()
-            .atom;
+        let window_type_atom = x11_ab.intern_atom(b"_NET_WM_WINDOW_TYPE");
+        let window_type_dock_atom = x11_ab.intern_atom(b"_NET_WM_WINDOW_TYPE_DOCK");
+        let strut_partial_atom = x11_ab.intern_atom(b"_NET_WM_STRUT_PARTIAL");
+        let num_desktop_atom = x11_ab.intern_atom(b"_NET_NUMBER_OF_DESKTOPS");
+        let active_desktop_atom = x11_ab.intern_atom(b"_NET_CURRENT_DESKTOP");
         use x11rb::wrapper::ConnectionExt;
-
-        let num_desktop_atom = x11_ab
-            .conn
-            .intern_atom(false, b"_NET_NUMBER_OF_DESKTOPS")
-            .unwrap()
-            .reply()
-            .unwrap()
-            .atom;
-        let active_desktop_atom = x11_ab
-            .conn
-            .intern_atom(false, b"_NET_CURRENT_DESKTOP")
-            .unwrap()
-            .reply()
-            .unwrap()
-            .atom;
 
         x11_ab
             .conn
