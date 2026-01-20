@@ -10,11 +10,11 @@ pub const DEFAULT_CONFIG: Lazy<Vec<Statement>> = Lazy::new(|| {
     vec![
         Statement::Set {
             var: Variable::MasterKey,
-            value: Value::Key(SpecialKey::Alt),
+            value: Value::Key(SpecialKey::Super),
         },
         Statement::Set {
             var: Variable::Gap,
-            value: Value::Num(8),
+            value: Value::Num(0),
         },
         Statement::Set {
             var: Variable::Terminal,
