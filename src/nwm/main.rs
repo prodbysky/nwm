@@ -1,11 +1,13 @@
 mod better_x11rb;
 mod config;
+mod multi_log;
+use colored::Colorize;
 
-use std::collections::HashMap;
+use std::{collections::HashMap, io::Write, net::Ipv4Addr};
 
 use better_x11rb::WindowId;
 
-use log::{info, warn};
+use log::{Level, info, warn};
 
 struct Nwm {
     x11: better_x11rb::X11RB,
@@ -25,6 +27,47 @@ struct Nwm {
     active_desktop_atom: Option<Atom>,
     struts: HashMap<WindowId, Strut>,
 }
+
+use std::sync::Mutex;
+
+struct NwLogLog{
+    out: Mutex<std::fs::File>
+}
+
+impl NwLogLog {
+    pub fn init(stdin: std::fs::File) -> Self {
+        Self {
+            out: Mutex::new(stdin)
+        }
+    }
+}
+
+impl log::Log for NwLogLog {
+    fn flush(&self) {
+        if let Ok(mut stdin) = self.out.lock() {
+            let _ = stdin.flush();
+        }
+    }
+    fn log(&self, record: &log::Record) {
+        if !self.enabled(record.metadata()) {
+            return;
+        }
+
+        if let Ok(mut stdin) = self.out.lock() {
+            let _ = writeln!(
+                stdin,
+                "{} -> {}",
+                record.level().as_str().yellow(),
+                record.args()
+            );
+        }
+    }
+
+    fn enabled(&self, metadata: &log::Metadata) -> bool {
+        metadata.level() <= Level::Info
+    }
+}
+
 
 struct Strut {
     left: u32,
@@ -211,6 +254,12 @@ impl Nwm {
     }
 
     pub fn create(display_name: &str) -> Option<Self> {
+        let file = std::fs::OpenOptions::new().append(true).create(true).open("/tmp/nwm.log").unwrap();
+
+        multi_log::MultiLog::init(vec![
+            Box::new(env_logger::Logger::from_default_env()),
+            Box::new(NwLogLog::init(file))
+        ], log::Level::Trace);
         let mut x11_ab = better_x11rb::X11RB::init()?;
 
         x11_ab.grab_pointer()?;
@@ -666,7 +715,6 @@ impl Nwm {
 }
 
 fn main() {
-    env_logger::init();
     let display_name = std::env::var("DISPLAY").unwrap();
     Nwm::create(&display_name).unwrap().run();
 }
