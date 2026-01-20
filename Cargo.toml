@@ -12,8 +12,10 @@ name = "nwlog"
 path = "src/nwlog/main.rs"
 
 [dependencies]
+colored = "3.1.1"
 env_logger = "0.11.8"
 log = "0.4.29"
+nix = { version = "0.30.1", features = ["process"] }
 once_cell = "1.21.3"
 platform-dirs = "0.3.0"
 serde = { version = "1.0.228", features = ["derive"] }
