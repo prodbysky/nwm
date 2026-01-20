@@ -1,7 +1,7 @@
 mod better_x11rb;
 mod config;
 
-use std::{collections::HashMap, num};
+use std::collections::HashMap;
 
 use better_x11rb::WindowId;
 
@@ -19,10 +19,10 @@ struct Nwm {
     binds: Vec<Bind>,
     terminal: String,
     launcher: String,
-    window_type_atom: Atom,
-    window_type_dock_atom: Atom,
-    strut_partial_atom: Atom,
-    active_desktop_atom: Atom,
+    window_type_atom: Option<Atom>,
+    window_type_dock_atom: Option<Atom>,
+    strut_partial_atom: Option<Atom>,
+    active_desktop_atom: Option<Atom>,
     struts: HashMap<WindowId, Strut>,
 }
 
@@ -211,9 +211,9 @@ impl Nwm {
     }
 
     pub fn create(display_name: &str) -> Option<Self> {
-        let mut x11_ab = better_x11rb::X11RB::init();
+        let mut x11_ab = better_x11rb::X11RB::init()?;
 
-        x11_ab.grab_pointer().unwrap();
+        x11_ab.grab_pointer()?;
 
         info!("Succesfully initialized display {} ", display_name);
 
@@ -255,22 +255,34 @@ impl Nwm {
         }
 
         let window_type_atom = x11_ab.intern_atom(b"_NET_WM_WINDOW_TYPE");
+        if window_type_atom.is_none() {
+            warn!("Failed to intern _NET_WM_WINDOW_TYPE, emwh window type support is not present");
+        }
         let window_type_dock_atom = x11_ab.intern_atom(b"_NET_WM_WINDOW_TYPE_DOCK");
+
+        if window_type_dock_atom.is_none() {
+            warn!("Failed to intern _NET_WM_WINDOW_TYPE_DOCK, emwh window type support is not present");
+        }
         let strut_partial_atom = x11_ab.intern_atom(b"_NET_WM_STRUT_PARTIAL");
-        let num_desktop_atom = x11_ab.intern_atom(b"_NET_NUMBER_OF_DESKTOPS");
-        let active_desktop_atom = x11_ab.intern_atom(b"_NET_CURRENT_DESKTOP");
+        if strut_partial_atom.is_none() {
+            warn!("Failed to intern _NET_WM_STRUT_PARTIAL, docks that depend on this won't resize other windows");
+        }
         use x11rb::wrapper::ConnectionExt;
 
-        x11_ab
-            .conn
-            .change_property32(
-                PropMode::REPLACE,
-                x11_ab.root_window(),
-                num_desktop_atom,
-                AtomEnum::CARDINAL,
-                &[10],
-            )
-            .unwrap();
+        let active_desktop_atom = x11_ab.intern_atom(b"_NET_CURRENT_DESKTOP");
+        if let Some(at) = active_desktop_atom {
+            _ = x11_ab
+                .conn
+                .change_property32(
+                    PropMode::REPLACE,
+                    x11_ab.root_window(),
+                    at,
+                    AtomEnum::CARDINAL,
+                    &[10],
+                ).map_err(|e| {
+                    warn!("Failed to set _NET_CURRENT_DESKTOP: {e}");
+                });
+        }
 
         Some(Self {
             x11: x11_ab,
@@ -361,9 +373,8 @@ impl Nwm {
         if let Some(i) = self.focused() {
             self.layout();
             let w = self.workspaces[self.curr_workspace][i];
-            self.x11.raise_window(w).unwrap();
-            self.x11.focus_window(w).unwrap();
-            info!("Applied focus to window {w}");
+            _ = self.x11.raise_window(w);
+            _ = self.x11.focus_window(w);
         }
     }
 
@@ -391,7 +402,7 @@ impl Nwm {
         info!("Keybindings were setup");
 
         while self.running {
-            let event = self.x11.next_event();
+            let event = self.x11.next_event().unwrap();
 
             match event {
                 Event::MapRequest(e) => self.add_window(e),
@@ -419,9 +430,13 @@ impl Nwm {
                 Event::MappingNotify(_) => {}
                 Event::ConfigureRequest(_) => self.layout(),
                 Event::PropertyNotify(e) => {
-                    if e.atom == self.strut_partial_atom {
+                    if self.strut_partial_atom.is_none() {
+                        continue;
+                    }
+                    let spa = self.strut_partial_atom.unwrap();
+                    if e.atom == spa {
                         if let Some(strut) =
-                            self.get_strut_partial(e.window, self.strut_partial_atom)
+                            self.get_strut_partial(e.window, spa)
                         {
                             self.struts.insert(e.window, Strut::from(strut));
                             self.layout();
@@ -471,7 +486,9 @@ impl Nwm {
             self.x11.map_window(w).unwrap();
         }
 
-        self.x11.conn.change_property32(PropMode::REPLACE, self.x11.root_window(), self.active_desktop_atom, AtomEnum::CARDINAL, &[(new_ws) as u32]).unwrap();
+        if let Some(ada) = self.active_desktop_atom {
+            self.x11.conn.change_property32(PropMode::REPLACE, self.x11.root_window(), ada, AtomEnum::CARDINAL, &[(new_ws) as u32]).unwrap();
+        }
         self.x11.conn.flush().unwrap();
 
         self.layout();
@@ -520,9 +537,11 @@ impl Nwm {
     }
 
     fn window_is_dock(&self, w: WindowId) -> bool {
-        if let Some(types) = self.get_window_type(w, self.window_type_atom) {
-            if types.contains(&self.window_type_dock_atom) {
-                return true;
+        if let Some(wta) = self.window_type_atom && let Some(wtda) = self.window_type_dock_atom {
+            if let Some(types) = self.get_window_type(w, wta) {
+                if types.contains(&wtda) {
+                    return true;
+                }
             }
         }
         return false;
@@ -530,9 +549,11 @@ impl Nwm {
 
     fn add_window(&mut self, event: MapRequestEvent) {
         self.x11.map_window(event.window).unwrap();
-        if let Some(strut) = self.get_strut_partial(event.window, self.strut_partial_atom) {
-            self.struts.insert(event.window, Strut::from(strut));
-            self.layout();
+        if let Some(spa) = self.strut_partial_atom {
+            if let Some(strut) = self.get_strut_partial(event.window, spa) {
+                self.struts.insert(event.window, Strut::from(strut));
+                self.layout();
+            }
         }
         if self.window_is_dock(event.window) {
             return;
@@ -540,8 +561,8 @@ impl Nwm {
         self.curr_ws_mut().push(event.window);
         self.focused[self.curr_workspace] = Some(self.curr_ws().len() - 1);
         self.layout();
-        self.x11.raise_window(event.window).unwrap();
-        self.x11.focus_window(event.window).unwrap();
+        self.x11.raise_window(event.window);
+        self.x11.focus_window(event.window);
     }
 
     fn remove_window(&mut self, event: UnmapNotifyEvent) {
@@ -580,11 +601,15 @@ impl Nwm {
     }
 
     fn launcher(&mut self) {
-        std::process::Command::new(&self.launcher).spawn().unwrap();
+        _ = std::process::Command::new(&self.launcher).spawn().map_err(|e| {
+            warn!("Failed to launch launcher {}: {e}", &self.launcher);
+        });
     }
 
     fn terminal(&mut self) {
-        std::process::Command::new(&self.terminal).spawn().unwrap();
+        _ = std::process::Command::new(&self.terminal).spawn().map_err(|e| {
+            warn!("Failed to launch terminal {}: {e}", &self.terminal);
+        });
     }
 
     fn focus_left(&mut self) {
@@ -612,8 +637,8 @@ impl Nwm {
 
         for (i, r) in rects.iter().enumerate() {
             let w = self.curr_ws()[i];
-            if self.window_is_dock(w) {
-                if let Some(strut) = self.get_strut_partial(w, self.strut_partial_atom) {
+            if self.window_is_dock(w) && let Some(spa) = self.strut_partial_atom {
+                if let Some(strut) = self.get_strut_partial(w, spa) {
                     self.struts.insert(
                         w,
                         Strut {
