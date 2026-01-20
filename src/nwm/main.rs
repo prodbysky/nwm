@@ -1,7 +1,7 @@
 mod better_x11rb;
 mod config;
 
-use std::collections::HashMap;
+use std::{collections::HashMap, net::Ipv4Addr};
 
 use better_x11rb::WindowId;
 
@@ -24,7 +24,10 @@ struct Nwm {
     strut_partial_atom: Option<Atom>,
     active_desktop_atom: Option<Atom>,
     struts: HashMap<WindowId, Strut>,
+    nwlog_proc: std::process::Child,
+    nwlog_stdin: std::process::ChildStdin
 }
+
 
 struct Strut {
     left: u32,
@@ -284,6 +287,8 @@ impl Nwm {
                 });
         }
 
+        let mut proc = std::process::Command::new("nwlog").stdin(std::process::Stdio::piped()).spawn().unwrap();
+
         Some(Self {
             x11: x11_ab,
             workspaces: Default::default(),
@@ -301,6 +306,8 @@ impl Nwm {
             strut_partial_atom,
             active_desktop_atom,
             struts: HashMap::new(),
+            nwlog_stdin: proc.stdin.take().unwrap(),
+            nwlog_proc: proc,
         })
     }
 
