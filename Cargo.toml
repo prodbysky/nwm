@@ -3,6 +3,14 @@ name = "nwm"
 version = "0.1.0"
 edition = "2024"
 
+[[bin]]
+name = "nwm"
+path = "src/nwm/main.rs"
+
+[[bin]]
+name = "nwm-gui-log"
+path = "src/nwlog/main.rs"
+
 [dependencies]
 env_logger = "0.11.8"
 log = "0.4.29"
