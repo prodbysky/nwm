@@ -159,7 +159,6 @@ struct Reserve {
     y1: u32,
 }
 
-use serde::{Deserialize, Serialize};
 use x11rb::{
     connection::Connection, protocol::{
         Event,
@@ -170,7 +169,7 @@ use x11rb::{
     }, wrapper::ConnectionExt as OtherConnExt
 };
 
-#[derive(Serialize, Deserialize, Clone, Copy)]
+#[derive(Clone, Copy)]
 enum MasterKey {
     Super,
     Shift,
