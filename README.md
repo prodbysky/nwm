@@ -33,7 +33,6 @@ Do FocusRight on l
 Do MoveLeft on Shift-h
 Do MoveRight on Shift-l
 
-
 Do CloseWindow on w
 
 Do NextWs on 2
@@ -43,10 +42,13 @@ Do Launcher on Space
 Do Terminal on Return
 ```
 ### Available configuration settings
- - Gap       : Pixel gap (inner and outer) between windows [default: 0]
- - MasterKey : Master modifier which gets prepended on all keybinds [default: Super (Mod4)]
- - Terminal  : Default terminal emulator
- - Launcher  : Default launcher application
+ - Gap               : Pixel gap (inner and outer) between windows [default: 0]
+ - MasterKey         : Master modifier which gets prepended on all keybinds [default: Super (Mod4)]
+ - Terminal          : Default terminal emulator
+ - Launcher          : Default launcher application
+ - BorderWidth       : Set the border width which indicates focus
+ - BorderActiveColor : Set the color of the borders when a window is active
+ - BorderInactiveColor : Set the color of the borders when a window is inactive
 
 ### Available actions
  - Terminal        : Launch the terminal with the option specified (duh)

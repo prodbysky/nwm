@@ -24,6 +24,18 @@ pub const DEFAULT_CONFIG: Lazy<Vec<Statement>> = Lazy::new(|| {
             var: Variable::Launcher,
             value: Value::String("dmenu_run".to_string()),
         },
+        Statement::Set {
+            var: Variable::BorderWidth,
+            value: Value::Num(4),
+        },
+        Statement::Set {
+            var: Variable::BorderActiveColor,
+            value: Value::String("#ffdd33".to_string()),
+        },
+        Statement::Set {
+            var: Variable::BorderInactiveColor,
+            value: Value::String("#181818".to_string()),
+        },
         Statement::Do {
             action: Action::FocusLeft,
             on: KeyCombo {
@@ -141,6 +153,9 @@ impl ToString for Config {
                         Variable::Gap => write!(o, "Gap "),
                         Variable::Terminal => write!(o, "Terminal "),
                         Variable::Launcher => write!(o, "Launcher "),
+                        Variable::BorderWidth => write!(o, "BorderWidth "),
+                        Variable::BorderActiveColor => write!(o, "BorderActiveColor "),
+                        Variable::BorderInactiveColor => write!(o, "BorderInactiveColor "),
                     };
                     let _ = match value {
                         Value::Key(s) => writeln!(o, "{}", s.to_string()),
@@ -225,6 +240,9 @@ impl<'a> Parser<'a> {
             Some(Token::MasterKey) => Some(Variable::MasterKey),
             Some(Token::Launcher) => Some(Variable::Launcher),
             Some(Token::Terminal) => Some(Variable::Terminal),
+            Some(Token::BorderWidth) => Some(Variable::BorderWidth),
+            Some(Token::BorderActiveColor) => Some(Variable::BorderActiveColor),
+            Some(Token::BorderInactiveColor) => Some(Variable::BorderInactiveColor),
             other => {
                 error!("Expected a variable name to be here: {other:?}");
                 None
@@ -437,6 +455,9 @@ pub enum Variable {
     MasterKey,
     Terminal,
     Launcher,
+    BorderWidth,
+    BorderActiveColor,
+    BorderInactiveColor,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -492,6 +513,10 @@ enum Token {
     NextWs,
     PrevWs,
 
+    BorderWidth,
+    BorderActiveColor,
+    BorderInactiveColor,
+
     Hyphen,
 }
 
@@ -507,10 +532,18 @@ impl Lexer {
                 c if c.is_whitespace() => {
                     self.eat();
                 }
-                c if c.is_ascii_alphabetic() || (c == '_') => {
+                c if c.is_ascii_digit() => {
                     let begin = self.pos;
-                    while !self.done() && self.peek().unwrap().is_ascii_alphabetic()
-                        || self.peek().unwrap() == '_'
+                    while !self.done() && self.peek().unwrap().is_ascii_digit() {
+                        self.eat();
+                    }
+                    let end = self.pos;
+                    ts.push(Token::Number(self.input[begin..end].parse().unwrap()));
+                }
+                c if c.is_ascii_alphanumeric() || (c == '_') || (c == '#') => {
+                    let begin = self.pos;
+                    while !self.done() && self.peek().unwrap().is_ascii_alphanumeric()
+                        || self.peek().unwrap() == '_' || self.peek().unwrap() == '#'
                     {
                         self.eat();
                     }
@@ -538,6 +571,9 @@ impl Lexer {
                         "CloseWindow" => ts.push(Token::CloseWindow),
                         "PrevWs" => ts.push(Token::PrevWs),
                         "NextWs" => ts.push(Token::NextWs),
+                        "BorderWidth" => ts.push(Token::BorderWidth),
+                        "BorderActiveColor" => ts.push(Token::BorderActiveColor),
+                        "BorderInactiveColor" => ts.push(Token::BorderInactiveColor),
                         x if x.len() == 1
                             && x.chars()
                                 .nth(0)
@@ -549,14 +585,6 @@ impl Lexer {
                             ts.push(Token::Word(o.to_string()));
                         }
                     }
-                }
-                c if c.is_ascii_digit() => {
-                    let begin = self.pos;
-                    while !self.done() && self.peek().unwrap().is_ascii_digit() {
-                        self.eat();
-                    }
-                    let end = self.pos;
-                    ts.push(Token::Number(self.input[begin..end].parse().unwrap()));
                 }
                 '-' => {
                     self.eat();

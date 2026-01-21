@@ -3,7 +3,7 @@ mod config;
 mod multi_log;
 use colored::Colorize;
 
-use std::{collections::HashMap, io::Write, net::Ipv4Addr};
+use std::{collections::HashMap, io::Write};
 
 use better_x11rb::WindowId;
 
@@ -14,6 +14,7 @@ struct Nwm {
     workspaces: [Vec<WindowId>; 10],
     curr_workspace: usize,
     focused: [Option<usize>; 10],
+    last_focused: Option<WindowId>,
     running: bool,
     last_x: i16,
     last_y: i16,
@@ -26,6 +27,9 @@ struct Nwm {
     strut_partial_atom: Option<Atom>,
     active_desktop_atom: Option<Atom>,
     struts: HashMap<WindowId, Strut>,
+    border_width: u8,
+    active_border_color: u32,
+    inactive_border_color: u32,
 }
 
 use std::sync::Mutex;
@@ -163,8 +167,7 @@ use x11rb::{
     connection::Connection, protocol::{
         Event,
         xproto::{
-            Atom, AtomEnum, ConnectionExt, KeyPressEvent, MapRequestEvent, ModMask, PropMode,
-            UnmapNotifyEvent,
+            Atom, AtomEnum, ChangeWindowAttributesAux, ConfigureWindowAux, ConnectionExt, KeyPressEvent, MapRequestEvent, ModMask, PropMode, UnmapNotifyEvent
         },
     }, wrapper::ConnectionExt as OtherConnExt
 };
@@ -195,12 +198,15 @@ impl Nwm {
     fn apply_config(
         conf: config::Config,
         x11_rb: &mut better_x11rb::X11RB,
-    ) -> (u8, MasterKey, Vec<Bind>, String, String) {
+    ) -> (u8, MasterKey, Vec<Bind>, String, String, u32, u32, u8) {
         let mut gap = 0;
         let mut master_key = MasterKey::Alt;
         let mut binds = vec![];
         let mut terminal = String::new();
         let mut launcher = String::new();
+        let mut active = 0;
+        let mut inactive = 0;
+        let mut width = 0;
         for s in conf.0 {
             match s {
                 config::Statement::Set { var, value } => match (var, value) {
@@ -222,6 +228,16 @@ impl Nwm {
                     (config::Variable::Launcher, config::Value::String(k)) => {
                         launcher = k;
                     }
+                    (config::Variable::BorderWidth, config::Value::Num(n)) => {
+                        width = n;
+                    }
+                    (config::Variable::BorderInactiveColor, config::Value::String(s)) => {
+                        inactive = u32::from_str_radix(&s[1..], 16).unwrap();
+                    }
+                    (config::Variable::BorderActiveColor, config::Value::String(s)) => {
+                        active = u32::from_str_radix(&s[1..], 16).unwrap();
+                    }
+
                     _ => warn!("Invalid Set statement"),
                 },
 
@@ -249,7 +265,7 @@ impl Nwm {
                 }
             }
         }
-        (gap, master_key, binds, terminal, launcher)
+        (gap, master_key, binds, terminal, launcher, active, inactive, width as u8)
     }
 
     pub fn create(display_name: &str) -> Option<Self> {
@@ -280,14 +296,18 @@ impl Nwm {
 
         let conf;
 
+        let width;
+        let active;
+        let inactive;
+
         if conf_dir.exists() {
             let content = std::fs::read_to_string(conf_dir).unwrap();
             conf = config::Config::parse(content).unwrap();
-            (gap, _, binds, terminal, launcher) = Self::apply_config(conf, &mut x11_ab);
+            (gap, _, binds, terminal, launcher, active, inactive, width) = Self::apply_config(conf, &mut x11_ab);
         } else {
             conf = config::Config::default();
             _ = std::fs::write(&conf_dir, conf.to_string());
-            (gap, _, binds, terminal, launcher) = Self::apply_config(conf, &mut x11_ab);
+            (gap, _, binds, terminal, launcher, active, inactive, width) = Self::apply_config(conf, &mut x11_ab);
         }
 
         if run_dir.exists() {
@@ -349,6 +369,10 @@ impl Nwm {
             strut_partial_atom,
             active_desktop_atom,
             struts: HashMap::new(),
+            last_focused: None,
+            active_border_color: active,
+            inactive_border_color: inactive,
+            border_width: width
         })
     }
 
@@ -358,8 +382,7 @@ impl Nwm {
             .conn
             .get_property(false, w, atom, AtomEnum::ATOM, 0, 32)
             .unwrap()
-            .reply()
-            .unwrap();
+            .reply().map_err(|e| warn!("Failed to get reply from getting the window type of window {w}: {e}")).ok()?;
 
         if rep.format != 32 {
             return None;
@@ -417,15 +440,6 @@ impl Nwm {
         self.focused[self.curr_workspace]
     }
 
-    fn apply_focus(&mut self) {
-        if let Some(i) = self.focused() {
-            self.layout();
-            let w = self.workspaces[self.curr_workspace][i];
-            _ = self.x11.raise_window(w);
-            _ = self.x11.focus_window(w);
-        }
-    }
-
     fn close_focused(&mut self) {
         if let Some(w) = self.focused() {
             self.close_window(w);
@@ -467,7 +481,7 @@ impl Nwm {
                         for (i, r) in rects.iter().enumerate() {
                             if x > r.x && x < r.x + r.w {
                                 self.focused[self.curr_workspace] = Some(i);
-                                self.apply_focus();
+                                self.set_focus(i);
                             }
                         }
                         self.last_x = x;
@@ -508,10 +522,9 @@ impl Nwm {
         let rects = self.window_rects();
         for (i, r) in rects.iter().enumerate() {
             if self.last_x > r.x && self.last_x < r.x + r.w {
-                if self.focused().is_none() {
-                    self.focused[self.curr_workspace] = Some(i);
-                }
-                self.apply_focus();
+                self.x11.conn.change_window_attributes(self.curr_ws()[self.focused().unwrap()], &ChangeWindowAttributesAux::new().border_pixel(self.inactive_border_color)).unwrap();
+                self.focused[self.curr_workspace] = Some(i);
+                self.set_focus(i);
             }
         }
     }
@@ -606,6 +619,8 @@ impl Nwm {
         if self.window_is_dock(event.window) {
             return;
         }
+        self.x11.conn.configure_window(event.window, &ConfigureWindowAux::new().border_width(self.border_width as u32)).unwrap();
+        self.x11.conn.change_window_attributes(event.window, &ChangeWindowAttributesAux::new().border_pixel(self.inactive_border_color)).unwrap();
         self.curr_ws_mut().push(event.window);
         self.focused[self.curr_workspace] = Some(self.curr_ws().len() - 1);
         self.layout();
@@ -632,7 +647,6 @@ impl Nwm {
                 self.curr_ws_mut().swap(i, i - 1);
                 self.focused[self.curr_workspace] = Some(i - 1);
                 self.layout();
-                self.apply_focus();
             }
         }
     }
@@ -643,7 +657,6 @@ impl Nwm {
                 self.curr_ws_mut().swap(i, i + 1);
                 self.focused[self.curr_workspace] = Some(i + 1);
                 self.layout();
-                self.apply_focus();
             }
         }
     }
@@ -661,19 +674,18 @@ impl Nwm {
     }
 
     fn focus_left(&mut self) {
-        self.focused[self.curr_workspace] =
-            self.focused[self.curr_workspace].map(|x| if x == 0 { x } else { x - 1 });
-        self.apply_focus();
+        if let Some(i) = self.focused[self.curr_workspace] {
+            let new = i.saturating_sub(1);
+            self.focused[self.curr_workspace] = Some(new);
+            self.set_focus(new);
+        }
     }
     fn focus_right(&mut self) {
-        self.focused[self.curr_workspace] = self.focused[self.curr_workspace].map(|x| {
-            if self.curr_ws().len() - 1 == x {
-                x
-            } else {
-                x + 1
-            }
-        });
-        self.apply_focus();
+        if let Some(i) = self.focused[self.curr_workspace] {
+            let new = i.saturating_add(1);
+            self.focused[self.curr_workspace] = Some(new);
+            self.set_focus(new);
+        }
     }
 
     fn layout(&mut self) {
@@ -710,6 +722,28 @@ impl Nwm {
             self.x11.move_window(w, r.x, r.y).unwrap();
             self.x11.resize_window(w, r.w as u32, r.h as u32).unwrap();
         }
+    }
+
+    fn set_focus(&mut self, index: usize) {
+        let w = self.curr_ws()[index];
+        if let Some(prev) = self.last_focused {
+            let _ = self.x11.conn.change_window_attributes(
+                prev,
+                &ChangeWindowAttributesAux::new()
+                    .border_pixel(self.inactive_border_color),
+            );
+        }
+
+        let _ = self.x11.conn.change_window_attributes(
+            w,
+            &ChangeWindowAttributesAux::new()
+                .border_pixel(self.active_border_color),
+        );
+
+        let _ = self.x11.raise_window(w);
+        let _ = self.x11.focus_window(w);
+
+        self.last_focused = Some(w);
     }
 }
 
