@@ -4,7 +4,6 @@ use log::{error, warn};
 
 use x11rb::{
     connection::Connection,
-    errors::ConnectionError,
     protocol::{
         Event,
         xproto::{
