@@ -1,6 +1,6 @@
 mod better_x11rb;
-mod config;
 mod multi_log;
+mod lua_cfg;
 use colored::Colorize;
 
 use std::{collections::HashMap, io::Write};
@@ -111,17 +111,17 @@ impl From<[u32; 12]> for Strut {
 #[derive(Debug, Clone)]
 struct Bind {
     action: fn(&mut Nwm),
-    bind: config::KeyCombo,
+    bind: lua_cfg::KeyCombo,
 }
 
-fn keycombo_mask(kc: &config::KeyCombo) -> u16 {
+fn keycombo_mask(kc: &lua_cfg::KeyCombo) -> u16 {
     let mut mask = 0;
     for m in &kc.prefixes {
         mask |= match m {
-            config::SpecialKey::Shift => ModMask::SHIFT,
-            config::SpecialKey::Control => ModMask::CONTROL,
-            config::SpecialKey::Alt => ModMask::M1,
-            config::SpecialKey::Super => ModMask::M4,
+            lua_cfg::SpecialKey::Shift => ModMask::SHIFT,
+            lua_cfg::SpecialKey::Control => ModMask::CONTROL,
+            lua_cfg::SpecialKey::Alt => ModMask::M1,
+            lua_cfg::SpecialKey::Super => ModMask::M4,
             _ => ModMask::default(),
         };
     }
@@ -183,197 +183,92 @@ enum MasterKey {
     Alt,
 }
 
-fn action_to_fn(action: config::Action) -> fn(&mut Nwm) {
+fn action_to_fn(action: lua_cfg::Action) -> fn(&mut Nwm) {
     match action {
-        config::Action::FocusLeft => Nwm::focus_left,
-        config::Action::FocusRight => Nwm::focus_right,
-        config::Action::MoveLeft => Nwm::swap_left,
-        config::Action::MoveRight => Nwm::swap_right,
-        config::Action::Launcher => Nwm::launcher,
-        config::Action::Terminal => Nwm::terminal,
-        config::Action::CloseWindow => Nwm::close_focused,
-        config::Action::NextWs => Nwm::focus_next_ws,
-        config::Action::PrevWs => Nwm::focus_prev_ws,
-        config::Action::ReloadConfig => Nwm::reload_config,
+        lua_cfg::Action::FocusLeft => Nwm::focus_left,
+        lua_cfg::Action::FocusRight => Nwm::focus_right,
+        lua_cfg::Action::MoveLeft => Nwm::swap_left,
+        lua_cfg::Action::MoveRight => Nwm::swap_right,
+        lua_cfg::Action::Launcher => Nwm::launcher,
+        lua_cfg::Action::Terminal => Nwm::terminal,
+        lua_cfg::Action::CloseWindow => Nwm::close_focused,
+        lua_cfg::Action::NextWs => Nwm::focus_next_ws,
+        lua_cfg::Action::PrevWs => Nwm::focus_prev_ws,
+        lua_cfg::Action::ReloadConfig => Nwm::reload_config,
     }
 }
 
 impl Nwm {
-    fn apply_config(
-        conf: config::Config,
-        x11_rb: &mut better_x11rb::X11RB,
-    ) -> (u8, MasterKey, Vec<Bind>, String, String, u32, u32, u8) {
-        let mut gap = 0;
-        let mut master_key = MasterKey::Alt;
-        let mut binds = vec![];
-        let mut terminal = String::new();
-        let mut launcher = String::new();
-        let mut active = 0;
-        let mut inactive = 0;
-        let mut width = 0;
-        for s in conf.0 {
-            match s {
-                config::Statement::Set { var, value } => match (var, value) {
-                    (config::Variable::Gap, config::Value::Num(n)) => {
-                        gap = n as u8;
-                    }
-                    (config::Variable::MasterKey, config::Value::Key(k)) => {
-                        master_key = match k {
-                            config::SpecialKey::Super => MasterKey::Super,
-                            config::SpecialKey::Shift => MasterKey::Shift,
-                            config::SpecialKey::Alt => MasterKey::Alt,
-                            config::SpecialKey::Control => MasterKey::Control,
-                            _ => continue,
-                        };
-                    }
-                    (config::Variable::Terminal, config::Value::String(k)) => {
-                        terminal = k;
-                    }
-                    (config::Variable::Launcher, config::Value::String(k)) => {
-                        launcher = k;
-                    }
-                    (config::Variable::BorderWidth, config::Value::Num(n)) => {
-                        width = n;
-                    }
-                    (config::Variable::BorderInactiveColor, config::Value::String(s)) => {
-                        inactive = u32::from_str_radix(&s[1..], 16).unwrap();
-                    }
-                    (config::Variable::BorderActiveColor, config::Value::String(s)) => {
-                        active = u32::from_str_radix(&s[1..], 16).unwrap();
-                    }
+    fn apply_lua_config(
+        conf: lua_cfg::Config,
+        x11: &mut better_x11rb::X11RB,
+    ) -> (u8, Vec<Bind>, String, String, u32, u32, u8) {
+        let settings = conf.settings;
 
-                    _ => warn!("Invalid Set statement"),
-                },
+        let mut binds = Vec::new();
 
-                config::Statement::Do { action, mut on } => {
-                    on.prefixes.insert(0, master_key.into());
+        for b in conf.binds {
+            let mask = b
+                .combo
+                .prefixes
+                .iter()
+                .map(|k| match k {
+                    lua_cfg::SpecialKey::Alt => ModMask::M1,
+                    lua_cfg::SpecialKey::Shift => ModMask::SHIFT,
+                    lua_cfg::SpecialKey::Control => ModMask::CONTROL,
+                    lua_cfg::SpecialKey::Super => ModMask::M4,
+                    lua_cfg::SpecialKey::Space => unreachable!(),
+                })
+                .fold(ModMask::default(), |acc, it| acc | it);
 
-                    let mask = on
-                        .prefixes
-                        .iter()
-                        .map(|k| match k {
-                            config::SpecialKey::Alt => ModMask::M1,
-                            config::SpecialKey::Shift => ModMask::SHIFT,
-                            config::SpecialKey::Control => ModMask::CONTROL,
-                            config::SpecialKey::Super => ModMask::M4,
-                            config::SpecialKey::Space => unreachable!(),
-                        })
-                        .fold(ModMask::default(), |acc, it| acc | it);
+            x11.grab_key(mask, b.combo.key.into_x11rb()).unwrap();
 
-                    x11_rb.grab_key(mask, on.key.into_x11rb()).unwrap();
-
-                    binds.push(Bind {
-                        action: action_to_fn(action),
-                        bind: on,
-                    });
-                }
-            }
+            binds.push(Bind {
+                action: action_to_fn(b.action),
+                bind: b.combo,
+            });
         }
+
         (
-            gap,
-            master_key,
+            settings.gap as u8,
             binds,
-            terminal,
-            launcher,
-            active,
-            inactive,
-            width as u8,
+            settings.terminal,
+            settings.launcher,
+            settings.border_active_color,
+            settings.border_inactive_color,
+            settings.border_width as u8,
         )
     }
 
     fn reload_config(&mut self) {
-        let text = if let Ok(s) = std::fs::read_to_string(&self.config_path) {s} else {return;};
-        let new_config = if let Some(c) =
-            config::Config::parse(text) {
-            c
-        } else {
-            return ();
+        let conf = match lua_cfg::load_config(&self.config_path) {
+            Ok(c) => c,
+            Err(e) => {
+                warn!("Failed to reload lua config: {e:?}");
+                return;
+            }
         };
 
-        let mut master = MasterKey::Super;
         self.binds.clear();
 
-        for s in new_config.0 {
-            match s {
-                config::Statement::Set {
-                    var: config::Variable::Gap,
-                    value: config::Value::Num(n),
-                } => {
-                    self.gap = n as u8;
-                }
-                config::Statement::Set {
-                    var: config::Variable::MasterKey,
-                    value: config::Value::Key(k),
-                } => {
-                    master = match k {
-                        config::SpecialKey::Super => MasterKey::Super,
-                        config::SpecialKey::Shift => MasterKey::Shift,
-                        config::SpecialKey::Alt => MasterKey::Alt,
-                        config::SpecialKey::Control => MasterKey::Control,
-                        _ => continue,
-                    };
-                }
-                config::Statement::Set {
-                    var: config::Variable::Terminal,
-                    value: config::Value::String(s),
-                } => {
-                    self.terminal = s.clone();
-                }
-                config::Statement::Set {
-                    var: config::Variable::Launcher,
-                    value: config::Value::String(s),
-                } => {
-                    self.launcher = s.clone();
-                }
-                config::Statement::Set {
-                    var: config::Variable::BorderWidth,
-                    value: config::Value::Num(n),
-                } => {
-                    self.border_width = n as u8;
-                }
-                config::Statement::Set {
-                    var: config::Variable::BorderActiveColor,
-                    value: config::Value::String(s),
-                } => {
-                    self.active_border_color = u32::from_str_radix(&s[1..], 16).unwrap();
-                }
-                config::Statement::Set {
-                    var: config::Variable::BorderInactiveColor,
-                    value: config::Value::String(s),
-                } => {
-                    self.inactive_border_color = u32::from_str_radix(&s[1..], 16).unwrap();
-                }
-                config::Statement::Set { .. } => {
-                    warn!("Ignoring invalid set statement {s:?}");
-                }
-                config::Statement::Do { action, mut on } => {
-                    on.prefixes.insert(0, master.into());
-                    let mask = on
-                        .prefixes
-                        .iter()
-                        .map(|k| match k {
-                            config::SpecialKey::Alt => ModMask::M1,
-                            config::SpecialKey::Shift => ModMask::SHIFT,
-                            config::SpecialKey::Control => ModMask::CONTROL,
-                            config::SpecialKey::Super => ModMask::M4,
-                            config::SpecialKey::Space => unreachable!(),
-                        })
-                        .fold(ModMask::default(), |acc, it| acc | it);
+        let (gap, binds, terminal, launcher, active, inactive, width) =
+            Self::apply_lua_config(conf, &mut self.x11);
 
-                    self.x11.grab_key(mask, on.key.into_x11rb()).unwrap();
+        self.gap = gap;
+        self.binds = binds;
+        self.terminal = terminal;
+        self.launcher = launcher;
+        self.active_border_color = active;
+        self.inactive_border_color = inactive;
+        self.border_width = width;
 
-                    self.binds.push(Bind {
-                        action: action_to_fn(action),
-                        bind: on,
-                    });
-                }
-            }
-            for s in self.workspaces.clone() {
-                for w in s {
-                    self.set_window_border_width(w, self.border_width);
-                }
+        for ws in self.workspaces.clone(){
+            for w in ws {
+                self.set_window_border_width(w, self.border_width);
             }
         }
+
+        info!("Reloaded lua config");
     }
 
     pub fn create(display_name: &str) -> Option<Self> {
@@ -400,32 +295,12 @@ impl Nwm {
         _ = std::fs::create_dir(&dirs.config_dir);
         let mut conf_dir = dirs.config_dir.clone();
         let mut run_dir = dirs.config_dir.clone();
-        conf_dir.push("config.nwc");
+        conf_dir.push("config.lua");
         run_dir.push("run.sh");
 
-        let gap;
-        let mut binds = vec![];
-
-        let launcher;
-        let terminal;
-
-        let conf;
-
-        let width;
-        let active;
-        let inactive;
-
-        if conf_dir.exists() {
-            let content = std::fs::read_to_string(&conf_dir).unwrap();
-            conf = config::Config::parse(content).unwrap();
-            (gap, _, binds, terminal, launcher, active, inactive, width) =
-                Self::apply_config(conf, &mut x11_ab);
-        } else {
-            conf = config::Config::default();
-            _ = std::fs::write(&conf_dir, conf.to_string());
-            (gap, _, binds, terminal, launcher, active, inactive, width) =
-                Self::apply_config(conf, &mut x11_ab);
-        }
+        let conf = lua_cfg::load_config(&conf_dir).unwrap();
+        let (gap, binds, terminal, launcher, active, inactive, width) =
+            Self::apply_lua_config(conf, &mut x11_ab);
 
         if run_dir.exists() {
             std::process::Command::new("sh").arg(run_dir).spawn().ok();
