@@ -1,23 +1,40 @@
+use log::error;
 use std::sync::{Arc, Mutex};
 
 use mlua::Lua;
 
-pub fn load_config(path: &std::path::Path) -> Result<Config, ()> {
+pub fn load_config(path: &std::path::Path, reload: bool) -> Result<Config, ()> {
     let lua = Lua::new();
 
     let config = Arc::new(Mutex::new(Config::default()));
 
-    inject_config_api(&lua, config.clone()).unwrap();
-    inject_action_data(&lua).unwrap();
-    inject_bind_api(&lua, config.clone()).unwrap();
-    inject_key_consts(&lua).unwrap();
-    inject_mod_consts(&lua).unwrap();
+    inject_config_api(&lua, config.clone()).map_err(|e| {
+        error!("Failed to inject configuration api into the lua context: {e}");
+    })?;
+    inject_action_data(&lua).map_err(|e| {
+        error!("Failed to inject action definitions into the lua context: {e}");
+    })?;
+    inject_bind_api(&lua, config.clone()).map_err(|e| {
+        error!("Failed to inject bind api into the lua context: {e}");
+    })?;
+    inject_key_consts(&lua).map_err(|e| {
+        error!("Failed to inject named key constants into the lua context: {e}");
+    })?;
+    inject_mod_consts(&lua).map_err(|e| {
+        error!("Failed to inject named modifier key constants into the lua context: {e}");
+    })?;
 
+    lua.globals().set("first_boot", !reload).map_err(|e| {
+        error!("Failed to set first_boot global var: {e}");
+    })?;
 
+    let code = std::fs::read_to_string(path).map_err(|e| {
+        error!("Failed to read lua config file: {e}");
+    })?;
 
-    let code = std::fs::read_to_string(path).unwrap();
-
-    lua.load(&code).set_name("config.lua").exec().unwrap();
+    lua.load(&code).set_name("config.lua").exec().map_err(|e| {
+        error!("Failed to execute lua config file: {e}");
+    })?;
     let mut config = config.lock().unwrap().clone();
 
     {
@@ -110,7 +127,7 @@ fn inject_action_data(lua: &Lua) -> mlua::Result<()> {
     action_table.set("next_ws", Action::NextWs)?;
     action_table.set("reload", Action::ReloadConfig)?;
 
-    lua.globals().set("action", action_table).unwrap();
+    lua.globals().set("action", action_table)?;
 
     Ok(())
 }
@@ -167,7 +184,7 @@ fn parse_keycombo(s: &str) -> Result<KeyCombo, ()> {
         "Escape" => Key::Escape,
         k if k.len() == 1 => Key::Char(k.chars().next().unwrap()),
         k if k.parse::<u32>().is_ok() => Key::Char(k.chars().next().unwrap()),
-        _ => unreachable!()
+        _ => return Err(())
     };
     let parts = &parts[..parts.len() - 1];
     for p in parts {
@@ -184,7 +201,7 @@ fn parse_keycombo(s: &str) -> Result<KeyCombo, ()> {
             "Control" => {
                 combo.prefixes.push(SpecialKey::Control);
             },
-            _ => unreachable!()
+        _ => return Err(())
         }
     }
     Ok(combo)
@@ -259,10 +276,14 @@ pub enum Action {
 
 impl mlua::UserData for Action {}
 impl mlua::FromLua for Action {
-    fn from_lua(value: mlua::Value, lua: &Lua) -> mlua::Result<Self> {
+    fn from_lua(value: mlua::Value, _lua: &Lua) -> mlua::Result<Self> {
         match value {
             mlua::Value::UserData(ud) => Ok(*ud.borrow().unwrap()),
-            _ => unreachable!()
+            _ => Err(mlua::Error::FromLuaConversionError {
+                from: "Lua side action constant",
+                to: "Rust size action constant".to_string(),
+                message: Some("You might have specified a non-action value in config.lua, check if not then pr :)".to_string())
+            })
         }
     }
 }
@@ -280,10 +301,14 @@ pub enum SpecialKey {
 
 impl mlua::UserData for SpecialKey {}
 impl mlua::FromLua for SpecialKey {
-    fn from_lua(value: mlua::Value, lua: &Lua) -> mlua::Result<Self> {
+    fn from_lua(value: mlua::Value, _lua: &Lua) -> mlua::Result<Self> {
         match value {
             mlua::Value::UserData(ud) => Ok(*ud.borrow().unwrap()),
-            _ => todo!()
+            _ => Err(mlua::Error::FromLuaConversionError {
+                from: "Lua side modifier key constant",
+                to: "Rust size modifier key constant".to_string(),
+                message: Some("You might have specified a non-modifier value in config.lua, check if not then pr :)".to_string())
+            })
         }
     }
 }

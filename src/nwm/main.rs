@@ -241,7 +241,7 @@ impl Nwm {
     }
 
     fn reload_config(&mut self) {
-        let conf = match lua_cfg::load_config(&self.config_path) {
+        let conf = match lua_cfg::load_config(&self.config_path, true) {
             Ok(c) => c,
             Err(e) => {
                 warn!("Failed to reload lua config: {e:?}");
@@ -296,7 +296,7 @@ impl Nwm {
         let mut conf_dir = dirs.config_dir.clone();
         conf_dir.push("config.lua");
 
-        let conf = lua_cfg::load_config(&conf_dir).unwrap();
+        let conf = lua_cfg::load_config(&conf_dir, false).unwrap();
         let (gap, binds, terminal, launcher, active, inactive, width) =
             Self::apply_lua_config(conf, &mut x11_ab);
 

@@ -21,7 +21,9 @@ bind("1", action.prev_ws)
 
 bind("r", action.reload)
 
-os.execute("polybar &")
-os.execute("pipewire &")
-os.execute("feh --bg-fill  ~/Wallpapers/wall.png &")
+if first_boot then 
+    os.execute("polybar &")
+    os.execute("pipewire &")
+    os.execute("feh --bg-fill  ~/Wallpapers/wall.png &")
+end
 

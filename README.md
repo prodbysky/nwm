@@ -40,9 +40,11 @@ bind("1", action.prev_ws)
 
 bind("r", action.reload)
 
-os.execute("polybar &")
-os.execute("pipewire &")
-os.execute("feh --bg-fill  ~/Wallpapers/wall.png &")
+if first_boot then 
+    os.execute("polybar &")
+    os.execute("pipewire &")
+    os.execute("feh --bg-fill  ~/Wallpapers/wall.png &")
+end
 ```
 
 ### Available configuration settings
@@ -61,7 +63,7 @@ os.execute("feh --bg-fill  ~/Wallpapers/wall.png &")
  - FocusLeft/Right : Focus to the left or right relative to the current focused window
  - MoveLeft/Right  : Move the currently focused window to the left or right
  - Next/PrevWs     : Jump to next/previous workspace
- - ReloadConfig    : Reload the config.nwc file
+ - ReloadConfig    : Reload the config.lua file
 
 ## Startup external programs (for additional services)
 Just use os.execute("... &") inside config.lua
