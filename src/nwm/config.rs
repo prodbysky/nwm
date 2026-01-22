@@ -99,6 +99,13 @@ pub const DEFAULT_CONFIG: Lazy<Vec<Statement>> = Lazy::new(|| {
                 key: Key::Char('1'),
             },
         },
+        Statement::Do {
+            action: Action::ReloadConfig,
+            on: KeyCombo {
+                prefixes: vec![SpecialKey::Alt],
+                key: Key::Char('r'),
+            },
+        },
     ]
 });
 
@@ -132,6 +139,7 @@ impl ToString for Config {
                         Action::CloseWindow => write!(o, "CloseWindow "),
                         Action::NextWs => write!(o, "NextWs "),
                         Action::PrevWs => write!(o, "PrevWs "),
+                        Action::ReloadConfig => write!(o, "ReloadConfig "),
                     };
                     let _ = write!(o, "on ");
                     for p in on.prefixes.iter().skip(1) {
@@ -217,6 +225,7 @@ impl<'a> Parser<'a> {
             Some(Token::CloseWindow) => Some(Action::CloseWindow),
             Some(Token::NextWs) => Some(Action::NextWs),
             Some(Token::PrevWs) => Some(Action::PrevWs),
+            Some(Token::ReloadConfig) => Some(Action::ReloadConfig),
             other => {
                 error!("Expected a variable name to be here: {other:?}");
                 None
@@ -388,6 +397,7 @@ pub enum Action {
     CloseWindow,
     NextWs,
     PrevWs,
+    ReloadConfig,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -512,6 +522,7 @@ enum Token {
     CloseWindow,
     NextWs,
     PrevWs,
+    ReloadConfig,
 
     BorderWidth,
     BorderActiveColor,
@@ -574,6 +585,7 @@ impl Lexer {
                         "BorderWidth" => ts.push(Token::BorderWidth),
                         "BorderActiveColor" => ts.push(Token::BorderActiveColor),
                         "BorderInactiveColor" => ts.push(Token::BorderInactiveColor),
+                        "ReloadConfig" => ts.push(Token::ReloadConfig),
                         x if x.len() == 1
                             && x.chars()
                                 .nth(0)
