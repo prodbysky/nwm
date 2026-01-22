@@ -3,7 +3,7 @@ mod multi_log;
 mod lua_cfg;
 use colored::Colorize;
 
-use std::{collections::HashMap, io::Write};
+use std::{collections::HashMap, io::Write, process::Command};
 
 use better_x11rb::WindowId;
 
@@ -686,7 +686,9 @@ impl Nwm {
     }
 
     fn launcher(&mut self) {
-        _ = std::process::Command::new(&self.launcher)
+        let _ = Command::new("sh")
+            .arg("-c")
+            .arg(&self.launcher)
             .spawn()
             .map_err(|e| {
                 warn!("Failed to launch launcher {}: {e}", &self.launcher);
@@ -694,7 +696,9 @@ impl Nwm {
     }
 
     fn terminal(&mut self) {
-        _ = std::process::Command::new(&self.terminal)
+        let _ = Command::new("sh")
+            .arg("-c")
+            .arg(&self.terminal)
             .spawn()
             .map_err(|e| {
                 warn!("Failed to launch terminal {}: {e}", &self.terminal);
