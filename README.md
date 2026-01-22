@@ -2,6 +2,9 @@
 
 A basic tiling window manager written in Rust for X11, designed for still undetermined tasks.
 
+## BROKEN STUFF
+ - Mouse focus is broken
+
 ## Features:
  - Only horizontally window tiling with configurable gaps
  - 10 workspaces
