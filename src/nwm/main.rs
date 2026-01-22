@@ -294,17 +294,12 @@ impl Nwm {
         let dirs = platform_dirs::AppDirs::new(Some("nwm"), false).unwrap();
         _ = std::fs::create_dir(&dirs.config_dir);
         let mut conf_dir = dirs.config_dir.clone();
-        let mut run_dir = dirs.config_dir.clone();
         conf_dir.push("config.lua");
-        run_dir.push("run.sh");
 
         let conf = lua_cfg::load_config(&conf_dir).unwrap();
         let (gap, binds, terminal, launcher, active, inactive, width) =
             Self::apply_lua_config(conf, &mut x11_ab);
 
-        if run_dir.exists() {
-            std::process::Command::new("sh").arg(run_dir).spawn().ok();
-        }
 
         info!("Everything went well in initialization :DD");
         if launcher.is_empty() {
