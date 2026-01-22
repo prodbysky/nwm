@@ -40,6 +40,7 @@ Do PrevWs on 1
 
 Do Launcher on Space
 Do Terminal on Return
+Do ReloadConfig on Control-r
 ```
 ### Available configuration settings
  - Gap               : Pixel gap (inner and outer) between windows [default: 0]
@@ -56,7 +57,8 @@ Do Terminal on Return
  - CloseWindow     : Close the currently focused window
  - FocusLeft/Right : Focus to the left or right relative to the current focused window
  - MoveLeft/Right  : Move the currently focused window to the left or right
- - Next/PrevWs    : Jump to next/previous workspace
+ - Next/PrevWs     : Jump to next/previous workspace
+ - ReloadConfig    : Reload the config.nwc file
 
 ## Startup script (for additional services)
 Nwm will run a shell script (`~/.config/nwm/run.sh`) on startup where you can just write shell.

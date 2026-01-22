@@ -30,18 +30,19 @@ struct Nwm {
     border_width: u8,
     active_border_color: u32,
     inactive_border_color: u32,
+    config_path: std::path::PathBuf,
 }
 
 use std::sync::Mutex;
 
-struct NwLogLog{
-    out: Mutex<std::fs::File>
+struct NwLogLog {
+    out: Mutex<std::fs::File>,
 }
 
 impl NwLogLog {
     pub fn init(stdin: std::fs::File) -> Self {
         Self {
-            out: Mutex::new(stdin)
+            out: Mutex::new(stdin),
         }
     }
 }
@@ -71,7 +72,6 @@ impl log::Log for NwLogLog {
         metadata.level() <= Level::Info
     }
 }
-
 
 struct Strut {
     left: u32,
@@ -164,12 +164,15 @@ struct Reserve {
 }
 
 use x11rb::{
-    connection::Connection, protocol::{
+    connection::Connection,
+    protocol::{
         Event,
         xproto::{
-            Atom, AtomEnum, ChangeWindowAttributesAux, ConfigureWindowAux, ConnectionExt, KeyPressEvent, MapRequestEvent, ModMask, PropMode, UnmapNotifyEvent
+            Atom, AtomEnum, ChangeWindowAttributesAux, ConfigureWindowAux, ConnectionExt,
+            KeyPressEvent, MapRequestEvent, ModMask, PropMode, UnmapNotifyEvent,
         },
-    }, wrapper::ConnectionExt as OtherConnExt
+    },
+    wrapper::ConnectionExt as OtherConnExt,
 };
 
 #[derive(Clone, Copy)]
@@ -191,6 +194,7 @@ fn action_to_fn(action: config::Action) -> fn(&mut Nwm) {
         config::Action::CloseWindow => Nwm::close_focused,
         config::Action::NextWs => Nwm::focus_next_ws,
         config::Action::PrevWs => Nwm::focus_prev_ws,
+        config::Action::ReloadConfig => Nwm::reload_config,
     }
 }
 
@@ -265,16 +269,127 @@ impl Nwm {
                 }
             }
         }
-        (gap, master_key, binds, terminal, launcher, active, inactive, width as u8)
+        (
+            gap,
+            master_key,
+            binds,
+            terminal,
+            launcher,
+            active,
+            inactive,
+            width as u8,
+        )
+    }
+
+    fn reload_config(&mut self) {
+        let text = if let Ok(s) = std::fs::read_to_string(&self.config_path) {s} else {return;};
+        let new_config = if let Some(c) =
+            config::Config::parse(text) {
+            c
+        } else {
+            return ();
+        };
+
+        let mut master = MasterKey::Super;
+        self.binds.clear();
+
+        for s in new_config.0 {
+            match s {
+                config::Statement::Set {
+                    var: config::Variable::Gap,
+                    value: config::Value::Num(n),
+                } => {
+                    self.gap = n as u8;
+                }
+                config::Statement::Set {
+                    var: config::Variable::MasterKey,
+                    value: config::Value::Key(k),
+                } => {
+                    master = match k {
+                        config::SpecialKey::Super => MasterKey::Super,
+                        config::SpecialKey::Shift => MasterKey::Shift,
+                        config::SpecialKey::Alt => MasterKey::Alt,
+                        config::SpecialKey::Control => MasterKey::Control,
+                        _ => continue,
+                    };
+                }
+                config::Statement::Set {
+                    var: config::Variable::Terminal,
+                    value: config::Value::String(s),
+                } => {
+                    self.terminal = s.clone();
+                }
+                config::Statement::Set {
+                    var: config::Variable::Launcher,
+                    value: config::Value::String(s),
+                } => {
+                    self.launcher = s.clone();
+                }
+                config::Statement::Set {
+                    var: config::Variable::BorderWidth,
+                    value: config::Value::Num(n),
+                } => {
+                    self.border_width = n as u8;
+                }
+                config::Statement::Set {
+                    var: config::Variable::BorderActiveColor,
+                    value: config::Value::String(s),
+                } => {
+                    self.active_border_color = u32::from_str_radix(&s[1..], 16).unwrap();
+                }
+                config::Statement::Set {
+                    var: config::Variable::BorderInactiveColor,
+                    value: config::Value::String(s),
+                } => {
+                    self.inactive_border_color = u32::from_str_radix(&s[1..], 16).unwrap();
+                }
+                config::Statement::Set { .. } => {
+                    warn!("Ignoring invalid set statement {s:?}");
+                }
+                config::Statement::Do { action, mut on } => {
+                    on.prefixes.insert(0, master.into());
+                    let mask = on
+                        .prefixes
+                        .iter()
+                        .map(|k| match k {
+                            config::SpecialKey::Alt => ModMask::M1,
+                            config::SpecialKey::Shift => ModMask::SHIFT,
+                            config::SpecialKey::Control => ModMask::CONTROL,
+                            config::SpecialKey::Super => ModMask::M4,
+                            config::SpecialKey::Space => unreachable!(),
+                        })
+                        .fold(ModMask::default(), |acc, it| acc | it);
+
+                    self.x11.grab_key(mask, on.key.into_x11rb()).unwrap();
+
+                    self.binds.push(Bind {
+                        action: action_to_fn(action),
+                        bind: on,
+                    });
+                }
+            }
+            for s in self.workspaces.clone() {
+                for w in s {
+                    self.set_window_border_width(w, self.border_width);
+                }
+            }
+        }
     }
 
     pub fn create(display_name: &str) -> Option<Self> {
-        let file = std::fs::OpenOptions::new().append(true).create(true).open("/tmp/nwm.log").unwrap();
+        let file = std::fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open("/tmp/nwm.log")
+            .unwrap();
 
-        multi_log::MultiLog::init(vec![
-            Box::new(env_logger::Logger::from_default_env()),
-            Box::new(NwLogLog::init(file))
-        ], log::Level::Trace);
+        multi_log::MultiLog::init(
+            vec![
+                Box::new(env_logger::Logger::from_default_env()),
+                Box::new(NwLogLog::init(file)),
+            ],
+            log::Level::Trace,
+        );
         let mut x11_ab = better_x11rb::X11RB::init()?;
 
         x11_ab.grab_pointer()?;
@@ -301,13 +416,15 @@ impl Nwm {
         let inactive;
 
         if conf_dir.exists() {
-            let content = std::fs::read_to_string(conf_dir).unwrap();
+            let content = std::fs::read_to_string(&conf_dir).unwrap();
             conf = config::Config::parse(content).unwrap();
-            (gap, _, binds, terminal, launcher, active, inactive, width) = Self::apply_config(conf, &mut x11_ab);
+            (gap, _, binds, terminal, launcher, active, inactive, width) =
+                Self::apply_config(conf, &mut x11_ab);
         } else {
             conf = config::Config::default();
             _ = std::fs::write(&conf_dir, conf.to_string());
-            (gap, _, binds, terminal, launcher, active, inactive, width) = Self::apply_config(conf, &mut x11_ab);
+            (gap, _, binds, terminal, launcher, active, inactive, width) =
+                Self::apply_config(conf, &mut x11_ab);
         }
 
         if run_dir.exists() {
@@ -329,11 +446,15 @@ impl Nwm {
         let window_type_dock_atom = x11_ab.intern_atom(b"_NET_WM_WINDOW_TYPE_DOCK");
 
         if window_type_dock_atom.is_none() {
-            warn!("Failed to intern _NET_WM_WINDOW_TYPE_DOCK, emwh window type support is not present");
+            warn!(
+                "Failed to intern _NET_WM_WINDOW_TYPE_DOCK, emwh window type support is not present"
+            );
         }
         let strut_partial_atom = x11_ab.intern_atom(b"_NET_WM_STRUT_PARTIAL");
         if strut_partial_atom.is_none() {
-            warn!("Failed to intern _NET_WM_STRUT_PARTIAL, docks that depend on this won't resize other windows");
+            warn!(
+                "Failed to intern _NET_WM_STRUT_PARTIAL, docks that depend on this won't resize other windows"
+            );
         }
         use x11rb::wrapper::ConnectionExt;
 
@@ -347,7 +468,8 @@ impl Nwm {
                     at,
                     AtomEnum::CARDINAL,
                     &[10],
-                ).map_err(|e| {
+                )
+                .map_err(|e| {
                     warn!("Failed to set _NET_CURRENT_DESKTOP: {e}");
                 });
         }
@@ -372,7 +494,8 @@ impl Nwm {
             last_focused: None,
             active_border_color: active,
             inactive_border_color: inactive,
-            border_width: width
+            border_width: width,
+            config_path: conf_dir,
         })
     }
 
@@ -382,7 +505,11 @@ impl Nwm {
             .conn
             .get_property(false, w, atom, AtomEnum::ATOM, 0, 32)
             .unwrap()
-            .reply().map_err(|e| warn!("Failed to get reply from getting the window type of window {w}: {e}")).ok()?;
+            .reply()
+            .map_err(|e| {
+                warn!("Failed to get reply from getting the window type of window {w}: {e}")
+            })
+            .ok()?;
 
         if rep.format != 32 {
             return None;
@@ -497,9 +624,7 @@ impl Nwm {
                     }
                     let spa = self.strut_partial_atom.unwrap();
                     if e.atom == spa {
-                        if let Some(strut) =
-                            self.get_strut_partial(e.window, spa)
-                        {
+                        if let Some(strut) = self.get_strut_partial(e.window, spa) {
                             self.struts.insert(e.window, Strut::from(strut));
                             self.layout();
                         }
@@ -522,18 +647,36 @@ impl Nwm {
         let rects = self.window_rects();
         for (i, r) in rects.iter().enumerate() {
             if self.last_x > r.x && self.last_x < r.x + r.w {
-                self.x11.conn.change_window_attributes(self.curr_ws()[self.focused().unwrap()], &ChangeWindowAttributesAux::new().border_pixel(self.inactive_border_color)).unwrap();
+                self.set_window_border_pixel(self.curr_ws()[self.focused().unwrap()], self.inactive_border_color);
                 self.focused[self.curr_workspace] = Some(i);
                 self.set_focus(i);
             }
         }
     }
 
+    fn set_window_border_pixel(&mut self, w: WindowId, color: u32) {
+        _ = self.x11
+            .conn
+            .change_window_attributes(
+                w,
+                &ChangeWindowAttributesAux::new().border_pixel(color),
+            );
+    }
+
+    fn set_window_border_width(&mut self, w: WindowId, width: u8) {
+        self.x11
+            .conn
+            .configure_window(
+                w,
+                &ConfigureWindowAux::new().border_width(width as u32),
+            )
+            .unwrap();
+    }
+
     fn switch_ws(&mut self, new_ws: usize) {
         if new_ws >= self.workspaces.len() || new_ws == self.curr_workspace {
             return;
         }
-
 
         let old_ws = self.curr_workspace;
 
@@ -548,7 +691,16 @@ impl Nwm {
         }
 
         if let Some(ada) = self.active_desktop_atom {
-            self.x11.conn.change_property32(PropMode::REPLACE, self.x11.root_window(), ada, AtomEnum::CARDINAL, &[(new_ws) as u32]).unwrap();
+            self.x11
+                .conn
+                .change_property32(
+                    PropMode::REPLACE,
+                    self.x11.root_window(),
+                    ada,
+                    AtomEnum::CARDINAL,
+                    &[(new_ws) as u32],
+                )
+                .unwrap();
         }
         self.x11.conn.flush().unwrap();
 
@@ -598,7 +750,9 @@ impl Nwm {
     }
 
     fn window_is_dock(&self, w: WindowId) -> bool {
-        if let Some(wta) = self.window_type_atom && let Some(wtda) = self.window_type_dock_atom {
+        if let Some(wta) = self.window_type_atom
+            && let Some(wtda) = self.window_type_dock_atom
+        {
             if let Some(types) = self.get_window_type(w, wta) {
                 if types.contains(&wtda) {
                     return true;
@@ -619,8 +773,8 @@ impl Nwm {
         if self.window_is_dock(event.window) {
             return;
         }
-        self.x11.conn.configure_window(event.window, &ConfigureWindowAux::new().border_width(self.border_width as u32)).unwrap();
-        self.x11.conn.change_window_attributes(event.window, &ChangeWindowAttributesAux::new().border_pixel(self.inactive_border_color)).unwrap();
+        self.set_window_border_width(event.window, self.border_width);
+        self.set_window_border_pixel(event.window, self.inactive_border_color);
         self.curr_ws_mut().push(event.window);
         self.focused[self.curr_workspace] = Some(self.curr_ws().len() - 1);
         self.layout();
@@ -662,15 +816,19 @@ impl Nwm {
     }
 
     fn launcher(&mut self) {
-        _ = std::process::Command::new(&self.launcher).spawn().map_err(|e| {
-            warn!("Failed to launch launcher {}: {e}", &self.launcher);
-        });
+        _ = std::process::Command::new(&self.launcher)
+            .spawn()
+            .map_err(|e| {
+                warn!("Failed to launch launcher {}: {e}", &self.launcher);
+            });
     }
 
     fn terminal(&mut self) {
-        _ = std::process::Command::new(&self.terminal).spawn().map_err(|e| {
-            warn!("Failed to launch terminal {}: {e}", &self.terminal);
-        });
+        _ = std::process::Command::new(&self.terminal)
+            .spawn()
+            .map_err(|e| {
+                warn!("Failed to launch terminal {}: {e}", &self.terminal);
+            });
     }
 
     fn focus_left(&mut self) {
@@ -697,7 +855,9 @@ impl Nwm {
 
         for (i, r) in rects.iter().enumerate() {
             let w = self.curr_ws()[i];
-            if self.window_is_dock(w) && let Some(spa) = self.strut_partial_atom {
+            if self.window_is_dock(w)
+                && let Some(spa) = self.strut_partial_atom
+            {
                 if let Some(strut) = self.get_strut_partial(w, spa) {
                     self.struts.insert(
                         w,
@@ -727,18 +887,10 @@ impl Nwm {
     fn set_focus(&mut self, index: usize) {
         let w = self.curr_ws()[index];
         if let Some(prev) = self.last_focused {
-            let _ = self.x11.conn.change_window_attributes(
-                prev,
-                &ChangeWindowAttributesAux::new()
-                    .border_pixel(self.inactive_border_color),
-            );
+            self.set_window_border_pixel(prev, self.inactive_border_color);
         }
 
-        let _ = self.x11.conn.change_window_attributes(
-            w,
-            &ChangeWindowAttributesAux::new()
-                .border_pixel(self.active_border_color),
-        );
+        self.set_window_border_pixel(w, self.active_border_color);
 
         let _ = self.x11.raise_window(w);
         let _ = self.x11.focus_window(w);
