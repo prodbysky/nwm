@@ -6,7 +6,7 @@ A basic tiling window manager written in Rust for X11, designed for still undete
  - Only horizontally window tiling with configurable gaps
  - 10 workspaces
  - Partial EWMH support - support for docks (polybar, ...)
- - Configurable keybinds
+ - Configurable (via lua)
 
 ## Installation
 Ensure you have Cargo installed then build.
@@ -14,34 +14,39 @@ Two binaries will be built (in target/(debug|release)/)- nwm, and nwlog.
 Nwm is the window manager, while nwlog is the consumer of logs that are produced by nwm
 
 ## Config
-Nwm will look for its configuration file in `~/.config/nwm/config.nwc`, if it does not exist 
-it will be written with the default configuration
-set gap 10
-set master_key Super
-set terminal "alacritty"
-set launcher "rofi -show drun"
- - Config example: 
+Nwm will look for its configuration file in `~/.config/nwm/config.lua` 
+ - Config example (if you need it its in ./config.lua): 
+```lua
+set.master_key(Alt)
+set.gap(8)
+set.terminal("alacritty")
+set.launcher("dmenu_run")
+set.border_width(4)
+set.border_active_color("#ffdd33")
+set.border_inactive_color("#181818")
+
+bind("h", action.focus.left)
+bind("l", action.focus.right)
+
+bind("Shift-h", action.move.left)
+bind("Shift-l", action.move.right)
+
+bind("Space", action.launcher)
+bind("Return", action.terminal)
+
+bind("w", action.close)
+bind("2", action.next_ws)
+bind("1", action.prev_ws)
+
+bind("r", action.reload)
+
+if first_boot then 
+    os.execute("polybar &")
+    os.execute("pipewire &")
+    os.execute("feh --bg-fill  ~/Wallpapers/wall.png &")
+end
 ```
-Set MasterKey Alt
-Set Gap 8
-Set Terminal alacritty
-Set Launcher dmenu_run
 
-Do FocusLeft on h
-Do FocusRight on l
-
-Do MoveLeft on Shift-h
-Do MoveRight on Shift-l
-
-Do CloseWindow on w
-
-Do NextWs on 2
-Do PrevWs on 1
-
-Do Launcher on Space
-Do Terminal on Return
-Do ReloadConfig on Control-r
-```
 ### Available configuration settings
  - Gap               : Pixel gap (inner and outer) between windows [default: 0]
  - MasterKey         : Master modifier which gets prepended on all keybinds [default: Super (Mod4)]
@@ -58,11 +63,10 @@ Do ReloadConfig on Control-r
  - FocusLeft/Right : Focus to the left or right relative to the current focused window
  - MoveLeft/Right  : Move the currently focused window to the left or right
  - Next/PrevWs     : Jump to next/previous workspace
- - ReloadConfig    : Reload the config.nwc file
+ - ReloadConfig    : Reload the config.lua file
 
-## Startup script (for additional services)
-Nwm will run a shell script (`~/.config/nwm/run.sh`) on startup where you can just write shell.
-Make sure your run.sh does not block.
+## Startup external programs (for additional services)
+Just use os.execute("... &") inside config.lua
 
 ## Dependencies:
  - Colored (I'm ashamed that I pull a dependency just for colors)
@@ -71,4 +75,5 @@ Make sure your run.sh does not block.
  - nix (for nwlog)
  - platform_dirs (duh)
  - x11rb (safe and more ergonomic rust bindings to x11)
+ - mlua (really good lua bindings)
 
