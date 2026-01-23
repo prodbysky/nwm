@@ -3,7 +3,7 @@
 A basic tiling window manager written in Rust for X11, designed for still undetermined tasks.
 
 ## BROKEN STUFF
- - Mouse focus is broken
+ - Nothing :3
 
 ## Features:
  - Only horizontally window tiling with configurable gaps

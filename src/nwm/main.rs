@@ -1,6 +1,6 @@
 mod better_x11rb;
-mod multi_log;
 mod lua_cfg;
+mod multi_log;
 use colored::Colorize;
 
 use std::{collections::HashMap, io::Write, process::Command};
@@ -168,8 +168,7 @@ use x11rb::{
     protocol::{
         Event,
         xproto::{
-            Atom, AtomEnum, ChangeWindowAttributesAux, ConfigureWindowAux, ConnectionExt,
-            KeyPressEvent, MapRequestEvent, ModMask, PropMode, UnmapNotifyEvent,
+            Atom, AtomEnum, ChangeWindowAttributesAux, ConfigureWindowAux, ConnectionExt, EventMask, KeyPressEvent, MapRequestEvent, ModMask, PropMode, UnmapNotifyEvent
         },
     },
     wrapper::ConnectionExt as OtherConnExt,
@@ -262,7 +261,7 @@ impl Nwm {
         self.inactive_border_color = inactive;
         self.border_width = width;
 
-        for ws in self.workspaces.clone(){
+        for ws in self.workspaces.clone() {
             for w in ws {
                 self.set_window_border_width(w, self.border_width);
             }
@@ -287,7 +286,7 @@ impl Nwm {
         );
         let mut x11_ab = better_x11rb::X11RB::init()?;
 
-        x11_ab.grab_pointer()?;
+        // x11_ab.grab_pointer()?;
 
         info!("Succesfully initialized display {} ", display_name);
 
@@ -299,7 +298,6 @@ impl Nwm {
         let conf = lua_cfg::load_config(&conf_dir, false).unwrap();
         let (gap, binds, terminal, launcher, active, inactive, width) =
             Self::apply_lua_config(conf, &mut x11_ab);
-
 
         info!("Everything went well in initialization :DD");
         if launcher.is_empty() {
@@ -485,6 +483,12 @@ impl Nwm {
                         self.last_y = y;
                     }
                 }
+                Event::EnterNotify(e) => {
+                    if let Some(i) = self.curr_ws().iter().position(|&w| w == e.event) {
+                        self.focused[self.curr_workspace] = Some(i);
+                        self.set_focus(i);
+                    }
+                }
                 Event::KeyRelease(_) => {}
                 Event::MappingNotify(_) => {}
                 Event::ConfigureRequest(_) => self.layout(),
@@ -517,7 +521,10 @@ impl Nwm {
         let rects = self.window_rects();
         for (i, r) in rects.iter().enumerate() {
             if self.last_x > r.x && self.last_x < r.x + r.w {
-                self.set_window_border_pixel(self.curr_ws()[self.focused().unwrap()], self.inactive_border_color);
+                self.set_window_border_pixel(
+                    self.curr_ws()[self.focused().unwrap()],
+                    self.inactive_border_color,
+                );
                 self.focused[self.curr_workspace] = Some(i);
                 self.set_focus(i);
             }
@@ -525,21 +532,16 @@ impl Nwm {
     }
 
     fn set_window_border_pixel(&mut self, w: WindowId, color: u32) {
-        _ = self.x11
+        _ = self
+            .x11
             .conn
-            .change_window_attributes(
-                w,
-                &ChangeWindowAttributesAux::new().border_pixel(color),
-            );
+            .change_window_attributes(w, &ChangeWindowAttributesAux::new().border_pixel(color));
     }
 
     fn set_window_border_width(&mut self, w: WindowId, width: u8) {
         self.x11
             .conn
-            .configure_window(
-                w,
-                &ConfigureWindowAux::new().border_width(width as u32),
-            )
+            .configure_window(w, &ConfigureWindowAux::new().border_width(width as u32))
             .unwrap();
     }
 
@@ -643,6 +645,11 @@ impl Nwm {
         if self.window_is_dock(event.window) {
             return;
         }
+        self.x11.conn.change_window_attributes(
+            event.window,
+            &ChangeWindowAttributesAux::new()
+                .event_mask(EventMask::ENTER_WINDOW),
+        ).unwrap();
         self.set_window_border_width(event.window, self.border_width);
         self.set_window_border_pixel(event.window, self.inactive_border_color);
         self.curr_ws_mut().push(event.window);

@@ -55,31 +55,40 @@ fn inject_config_api(lua: &Lua, config: Arc<Mutex<Config>>) -> mlua::Result<()> 
     macro_rules! set_usize {
         ($name:literal, $field:ident) => {{
             let cfg = config.clone();
-            set_table.set($name, lua.create_function(move |_, n: usize| {
-                cfg.lock().unwrap().settings.$field = n;
-                Ok(())
-            })?)?;
+            set_table.set(
+                $name,
+                lua.create_function(move |_, n: usize| {
+                    cfg.lock().unwrap().settings.$field = n;
+                    Ok(())
+                })?,
+            )?;
         }};
     }
 
     macro_rules! set_string {
         ($name:literal, $field:ident) => {{
             let cfg = config.clone();
-            set_table.set($name, lua.create_function(move |_, s: String| {
-                cfg.lock().unwrap().settings.$field = s;
-                Ok(())
-            })?)?;
+            set_table.set(
+                $name,
+                lua.create_function(move |_, s: String| {
+                    cfg.lock().unwrap().settings.$field = s;
+                    Ok(())
+                })?,
+            )?;
         }};
     }
 
     macro_rules! set_color {
         ($name:literal, $field:ident) => {{
             let cfg = config.clone();
-            set_table.set($name, lua.create_function(move |_, n: String| {
-                let color = u32::from_str_radix(&n[1..], 16).unwrap();
-                cfg.lock().unwrap().settings.$field = color;
-                Ok(())
-            })?)?;
+            set_table.set(
+                $name,
+                lua.create_function(move |_, n: String| {
+                    let color = u32::from_str_radix(&n[1..], 16).unwrap();
+                    cfg.lock().unwrap().settings.$field = color;
+                    Ok(())
+                })?,
+            )?;
         }};
     }
 
@@ -94,10 +103,13 @@ fn inject_config_api(lua: &Lua, config: Arc<Mutex<Config>>) -> mlua::Result<()> 
 
     {
         let cfg = config.clone();
-        set_table.set("master_key", lua.create_function(move |_, k: SpecialKey| {
-            cfg.lock().unwrap().settings.master_key = k;
-            Ok(())
-        })?)?;
+        set_table.set(
+            "master_key",
+            lua.create_function(move |_, k: SpecialKey| {
+                cfg.lock().unwrap().settings.master_key = k;
+                Ok(())
+            })?,
+        )?;
     }
 
     globals.set("set", set_table)?;
@@ -136,14 +148,10 @@ fn inject_bind_api<'a>(lua: &'a Lua, config: Arc<Mutex<Config>>) -> mlua::Result
     let globals = lua.globals();
 
     let bind = lua.create_function(move |_, (combo, action): (String, Action)| {
-        let combo = parse_keycombo(&combo).map_err(|_| {
-            mlua::Error::RuntimeError("invalid key combo".into())
-        })?;
+        let combo = parse_keycombo(&combo)
+            .map_err(|_| mlua::Error::RuntimeError("invalid key combo".into()))?;
 
-        config.lock().unwrap().binds.push(Binding {
-            combo,
-            action,
-        });
+        config.lock().unwrap().binds.push(Binding { combo, action });
 
         Ok(())
     })?;
@@ -170,7 +178,6 @@ fn inject_key_consts(lua: &Lua) -> mlua::Result<()> {
     Ok(())
 }
 
-
 fn parse_keycombo(s: &str) -> Result<KeyCombo, ()> {
     let mut combo = KeyCombo::default();
 
@@ -184,34 +191,33 @@ fn parse_keycombo(s: &str) -> Result<KeyCombo, ()> {
         "Escape" => Key::Escape,
         k if k.len() == 1 => Key::Char(k.chars().next().unwrap()),
         k if k.parse::<u32>().is_ok() => Key::Char(k.chars().next().unwrap()),
-        _ => return Err(())
+        _ => return Err(()),
     };
     let parts = &parts[..parts.len() - 1];
     for p in parts {
         match *p {
             "Alt" => {
                 combo.prefixes.push(SpecialKey::Alt);
-            },
+            }
             "Super" => {
                 combo.prefixes.push(SpecialKey::Super);
-            },
+            }
             "Shift" => {
                 combo.prefixes.push(SpecialKey::Shift);
-            },
+            }
             "Control" => {
                 combo.prefixes.push(SpecialKey::Control);
-            },
-        _ => return Err(())
+            }
+            _ => return Err(()),
         }
     }
     Ok(combo)
 }
 
-
 #[derive(Debug, Clone, Default)]
 pub struct Config {
     pub settings: Settings,
-    pub binds: Vec<Binding>
+    pub binds: Vec<Binding>,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -228,7 +234,7 @@ pub struct Settings {
 #[derive(Debug, Clone, Default)]
 pub struct Binding {
     pub combo: KeyCombo,
-    pub action: Action
+    pub action: Action,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -288,7 +294,6 @@ impl mlua::FromLua for Action {
     }
 }
 
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SpecialKey {
     #[default]
@@ -335,5 +340,3 @@ impl From<crate::MasterKey> for SpecialKey {
         }
     }
 }
-
-

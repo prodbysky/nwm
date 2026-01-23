@@ -7,7 +7,8 @@ use x11rb::{
     protocol::{
         Event,
         xproto::{
-            Atom, ChangeWindowAttributesAux, ConfigureWindowAux, ConnectionExt, EventMask, GrabMode, InputFocus, Keycode, MappingNotifyEvent, ModMask, Screen, StackMode, Time
+            Atom, ChangeWindowAttributesAux, ConfigureWindowAux, ConnectionExt, EventMask,
+            GrabMode, InputFocus, Keycode, MappingNotifyEvent, ModMask, Screen, StackMode, Time,
         },
     },
     rust_connection::RustConnection,
@@ -24,9 +25,11 @@ pub struct X11RB {
 
 impl X11RB {
     pub fn init() -> Option<Self> {
-        let (conn, screen_number) = x11rb::connect(None).map_err(|e| {
-            error!("Failed to open x11 display: {e}");
-        }).ok()?;
+        let (conn, screen_number) = x11rb::connect(None)
+            .map_err(|e| {
+                error!("Failed to open x11 display: {e}");
+            })
+            .ok()?;
         let screen = &conn.setup().roots[screen_number];
         let root = screen.root;
 
@@ -34,14 +37,16 @@ impl X11RB {
             | EventMask::SUBSTRUCTURE_NOTIFY
             | EventMask::KEY_PRESS
             | EventMask::POINTER_MOTION
-            | EventMask::PROPERTY_CHANGE;
+            | EventMask::PROPERTY_CHANGE
+            | EventMask::ENTER_WINDOW
+            | EventMask::LEAVE_WINDOW;
 
         conn.change_window_attributes(
             root,
             &ChangeWindowAttributesAux::new().event_mask(event_mask),
-        ).map_err(|e| {
-            error!("Failed to set window event mask: {e}")
-        }).ok()?;
+        )
+        .map_err(|e| error!("Failed to set window event mask: {e}"))
+        .ok()?;
 
         let mut wm = Self {
             screen: screen.clone(),
@@ -59,11 +64,21 @@ impl X11RB {
     }
 
     pub fn intern_atom(&mut self, name: &[u8]) -> Option<Atom> {
-        let a = self.conn.intern_atom(false, name).map_err(|e| {
-            warn!("Failed to intern atom {}: {e}", str::from_utf8(name).unwrap());
-        }).ok()?.reply().map_err(|e| {
-            warn!("Failed to read x11 reply: {e}");
-        }).ok()?;
+        let a = self
+            .conn
+            .intern_atom(false, name)
+            .map_err(|e| {
+                warn!(
+                    "Failed to intern atom {}: {e}",
+                    str::from_utf8(name).unwrap()
+                );
+            })
+            .ok()?
+            .reply()
+            .map_err(|e| {
+                warn!("Failed to read x11 reply: {e}");
+            })
+            .ok()?;
         Some(a.atom)
     }
 
@@ -75,12 +90,16 @@ impl X11RB {
 
         let reply = self
             .conn
-            .get_keyboard_mapping(min, max - min + 1).map_err(|e| {
-                warn!("Failed to rebuild keymap : {e}", );
-            }).ok()?
-            .reply().map_err(|e| {
+            .get_keyboard_mapping(min, max - min + 1)
+            .map_err(|e| {
+                warn!("Failed to rebuild keymap : {e}",);
+            })
+            .ok()?
+            .reply()
+            .map_err(|e| {
                 warn!("Failed to get reply from get_keyboard_mapping : {e}");
-            }).ok()?;
+            })
+            .ok()?;
 
         let per = reply.keysyms_per_keycode as usize;
 
@@ -94,32 +113,42 @@ impl X11RB {
     }
 
     pub fn grab_pointer(&mut self) -> Option<()> {
-        self.conn.grab_pointer(
-            true,
-            self.screen.root,
-            x11rb::protocol::xproto::EventMask::POINTER_MOTION
-                | x11rb::protocol::xproto::EventMask::ENTER_WINDOW,
-            x11rb::protocol::xproto::GrabMode::ASYNC,
-            x11rb::protocol::xproto::GrabMode::ASYNC,
-            0_u32,
-            0_u32,
-            x11rb::protocol::xproto::Time::CURRENT_TIME,
-        ).map_err(|e| {
-            warn!("Failed to grab the pointer: {e}");
-        }).ok()?;
+        self.conn
+            .grab_pointer(
+                true,
+                self.screen.root,
+                x11rb::protocol::xproto::EventMask::POINTER_MOTION
+                    | x11rb::protocol::xproto::EventMask::ENTER_WINDOW,
+                x11rb::protocol::xproto::GrabMode::ASYNC,
+                x11rb::protocol::xproto::GrabMode::ASYNC,
+                0_u32,
+                0_u32,
+                x11rb::protocol::xproto::Time::CURRENT_TIME,
+            )
+            .map_err(|e| {
+                warn!("Failed to grab the pointer: {e}");
+            })
+            .ok()?;
         self.flush()
     }
 
     fn flush(&mut self) -> Option<()> {
-        self.conn.flush().map_err(|e| {
-            warn!("Failed to flush the x11 connection: {e}");
-        }).ok()
+        self.conn
+            .flush()
+            .map_err(|e| {
+                warn!("Failed to flush the x11 connection: {e}");
+            })
+            .ok()
     }
 
     pub fn next_event(&mut self) -> Option<Event> {
-        let e = self.conn.wait_for_event().map_err(|e| {
-            warn!("Failed to get the next x11 event: {e}");
-        }).ok()?;
+        let e = self
+            .conn
+            .wait_for_event()
+            .map_err(|e| {
+                warn!("Failed to get the next x11 event: {e}");
+            })
+            .ok()?;
 
         match e {
             Event::MotionNotify(e) => {
@@ -149,60 +178,81 @@ impl X11RB {
     }
 
     pub fn raise_window(&mut self, id: WindowId) -> Option<()> {
-        self.conn.map_window(id).map_err(|e| {
-            warn!("Failed to map window {id} (while raising it): {e}");
-        }).ok()?;
         self.conn
-            .configure_window(id, &ConfigureWindowAux::new().stack_mode(StackMode::ABOVE)).map_err(|e| {
-            warn!("Failed to raise window {id} to top: {e}");
-            }).ok()?;
+            .map_window(id)
+            .map_err(|e| {
+                warn!("Failed to map window {id} (while raising it): {e}");
+            })
+            .ok()?;
+        self.conn
+            .configure_window(id, &ConfigureWindowAux::new().stack_mode(StackMode::ABOVE))
+            .map_err(|e| {
+                warn!("Failed to raise window {id} to top: {e}");
+            })
+            .ok()?;
         self.flush()
     }
 
     pub fn map_window(&mut self, id: WindowId) -> Option<()> {
-        self.conn.map_window(id).map_err(|e| {
-            warn!("Failed to map window {id}: {e}");
-        }).ok()?;
+        self.conn
+            .map_window(id)
+            .map_err(|e| {
+                warn!("Failed to map window {id}: {e}");
+            })
+            .ok()?;
         self.flush()
     }
 
     pub fn unmap_window(&mut self, id: WindowId) -> Option<()> {
-        self.conn.unmap_window(id).map_err(|e| {
-            warn!("Failed to unmap window {id}: {e}");
-        }).ok()?;
+        self.conn
+            .unmap_window(id)
+            .map_err(|e| {
+                warn!("Failed to unmap window {id}: {e}");
+            })
+            .ok()?;
         self.flush()
     }
 
     pub fn focus_window(&mut self, id: WindowId) -> Option<()> {
         self.conn
-            .set_input_focus(InputFocus::POINTER_ROOT, id, Time::CURRENT_TIME).map_err(|e| {
+            .set_input_focus(InputFocus::PARENT, id, Time::CURRENT_TIME)
+            .map_err(|e| {
                 warn!("Failed to focus window {id}: {e}");
-            }).ok()?;
+            })
+            .ok()?;
         self.flush()
     }
 
     pub fn close_window(&mut self, id: WindowId) -> Option<()> {
-        self.conn.destroy_window(id).map_err(|e| {
-            warn!("Failed to close window {id}: {e}");
-        }).ok()?;
+        self.conn
+            .destroy_window(id)
+            .map_err(|e| {
+                warn!("Failed to close window {id}: {e}");
+            })
+            .ok()?;
         self.flush()
     }
 
     pub fn move_window(&mut self, id: WindowId, x: i16, y: i16) -> Option<()> {
         self.conn
-            .configure_window(id, &ConfigureWindowAux::new().x(x as i32).y(y as i32)).map_err(|e| {
+            .configure_window(id, &ConfigureWindowAux::new().x(x as i32).y(y as i32))
+            .map_err(|e| {
                 warn!("Failed to move window {id}: {e}");
-            }).ok()?;
+            })
+            .ok()?;
         self.flush()
     }
 
     pub fn resize_window(&mut self, id: WindowId, w: u32, h: u32) -> Option<()> {
-        self.conn.configure_window(
-            id,
-            &ConfigureWindowAux::new().width(w as u32).height(h as u32),
-        ).map_err(|e| {
-            warn!("Failed to resize window {id}: {e}");
-        }).ok()?;
+        self.conn
+            .configure_window(
+                id,
+                &ConfigureWindowAux::new().width(w as u32).height(h as u32),
+            )
+            .map_err(|e| {
+                warn!("Failed to resize window {id}: {e}");
+            })
+            .ok()?;
         self.flush()
     }
 
@@ -215,16 +265,22 @@ impl X11RB {
         ];
 
         for m in masks {
-            self.conn.grab_key(
-                false,
-                self.screen.root,
-                m,
-                self.key_to_keycode(key) as u8,
-                GrabMode::ASYNC,
-                GrabMode::ASYNC,
-            ).map_err(|e| {
-                warn!("Failed to grab key: {key:4X} with mask {m:2X}: {e}", m = m.bits());
-            }).ok()?;
+            self.conn
+                .grab_key(
+                    false,
+                    self.screen.root,
+                    m,
+                    self.key_to_keycode(key) as u8,
+                    GrabMode::ASYNC,
+                    GrabMode::ASYNC,
+                )
+                .map_err(|e| {
+                    warn!(
+                        "Failed to grab key: {key:4X} with mask {m:2X}: {e}",
+                        m = m.bits()
+                    );
+                })
+                .ok()?;
         }
         self.flush()
     }
