@@ -18,15 +18,16 @@ struct Nwm {
     running: bool,
     last_x: i16,
     last_y: i16,
-    gap: u8,
-    binds: Vec<Bind>,
-    terminal: String,
-    launcher: String,
     window_type_atom: Option<Atom>,
     window_type_dock_atom: Option<Atom>,
     strut_partial_atom: Option<Atom>,
     active_desktop_atom: Option<Atom>,
     struts: HashMap<WindowId, Strut>,
+
+    gap: u8,
+    binds: Vec<Bind>,
+    terminal: String,
+    launcher: String,
     border_width: u8,
     active_border_color: u32,
     inactive_border_color: u32,
@@ -73,6 +74,7 @@ impl log::Log for NwLogLog {
     }
 }
 
+#[allow(dead_code)]
 struct Strut {
     left: u32,
     right: u32,
@@ -289,8 +291,6 @@ impl Nwm {
         );
         let mut x11_ab = better_x11rb::X11RB::init()?;
 
-        // x11_ab.grab_pointer()?;
-
         info!("Succesfully initialized display {} ", display_name);
 
         let dirs = platform_dirs::AppDirs::new(Some("nwm"), false).unwrap();
@@ -298,7 +298,10 @@ impl Nwm {
         let mut conf_dir = dirs.config_dir.clone();
         conf_dir.push("config.lua");
 
-        let conf = lua_cfg::load_config(&conf_dir, false).unwrap();
+        let conf = lua_cfg::load_config(&conf_dir, false).unwrap_or_else(|_| {
+            warn!("Failed to load config on startup using barebones default config");
+            lua_cfg::Config::default()
+        });
         let (gap, binds, terminal, launcher, active, inactive, width) =
             Self::apply_lua_config(conf, &mut x11_ab);
 
