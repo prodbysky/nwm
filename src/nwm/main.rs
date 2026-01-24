@@ -194,6 +194,9 @@ fn action_to_fn(action: lua_cfg::Action) -> fn(&mut Nwm) {
         lua_cfg::Action::NextWs => Nwm::focus_next_ws,
         lua_cfg::Action::PrevWs => Nwm::focus_prev_ws,
         lua_cfg::Action::ReloadConfig => Nwm::reload_config,
+        lua_cfg::Action::Quit => |nwm: &mut Nwm | {
+            nwm.running = false;
+        },
     }
 }
 

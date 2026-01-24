@@ -11,7 +11,7 @@ nwm.bind("l", nwm.action.focus.right)
 
 nwm.bind("Shift-h", nwm.action.move.left)
 nwm.bind("Shift-l", nwm.action.move.right)
--- bind("Shift-q", action.quit)
+nwm.bind("Shift-q", nwm.action.quit)
 
 nwm.bind("Space", nwm.action.launcher)
 nwm.bind("Return", nwm.action.terminal)

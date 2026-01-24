@@ -157,6 +157,7 @@ fn create_action_data(lua: &Lua) -> mlua::Result<mlua::Table> {
     action_table.set("prev_ws", Action::PrevWs)?;
     action_table.set("next_ws", Action::NextWs)?;
     action_table.set("reload", Action::ReloadConfig)?;
+    action_table.set("quit", Action::Quit)?;
 
     Ok(action_table)
 }
@@ -292,6 +293,7 @@ pub enum Action {
     NextWs,
     PrevWs,
     ReloadConfig,
+    Quit,
 }
 
 impl mlua::UserData for Action {}
