@@ -6,26 +6,48 @@ use mlua::Lua;
 pub fn load_config(path: &std::path::Path, reload: bool) -> Result<Config, ()> {
     let lua = Lua::new();
 
+    let nwm_table = lua.create_table().map_err(|e| {
+        error!("Failed to create base configuration table: {e}");
+    })?;
+
     let config = Arc::new(Mutex::new(Config::default()));
 
-    inject_config_api(&lua, config.clone()).map_err(|e| {
-        error!("Failed to inject configuration api into the lua context: {e}");
-    })?;
-    inject_action_data(&lua).map_err(|e| {
-        error!("Failed to inject action definitions into the lua context: {e}");
-    })?;
-    inject_bind_api(&lua, config.clone()).map_err(|e| {
-        error!("Failed to inject bind api into the lua context: {e}");
-    })?;
-    inject_key_consts(&lua).map_err(|e| {
-        error!("Failed to inject named key constants into the lua context: {e}");
-    })?;
-    inject_mod_consts(&lua).map_err(|e| {
-        error!("Failed to inject named modifier key constants into the lua context: {e}");
+    nwm_table.set("set", create_set_api(&lua, config.clone()).map_err(|e| {
+        error!("Failed to create `set` api table: {e}");
+    })?).map_err(|e| {
+        error!("Failed to put `set` api table in the `nwm` table: {e}");
     })?;
 
-    lua.globals().set("first_boot", !reload).map_err(|e| {
+    nwm_table.set("action", create_action_data(&lua).map_err(|e| {
+        error!("Failed to create `action` data table: {e}");
+    })?).map_err(|e| {
+        error!("Failed to put `action` data table in the `nwm` table: {e}");
+    })?;
+
+    nwm_table.set("bind", create_bind_api(&lua, config.clone()).map_err(|e| {
+        error!("Failed to create `bind` function: {e}");
+    })?).map_err(|e| {
+        error!("Failed to put `bind` function in the `nwm` table: {e}");
+    })?;
+
+    nwm_table.set("key", create_key_consts(&lua).map_err(|e| {
+        error!("Failed to create `key` table: {e}");
+    })?).map_err(|e| {
+        error!("Failed to put `key` table in the `nwm` table: {e}");
+    })?;
+
+    nwm_table.set("modifier", create_mod_consts(&lua).map_err(|e| {
+        error!("Failed to create `modifiers` table: {e}");
+    })?).map_err(|e| {
+        error!("Failed to put `modifiers` table in the `nwm` table: {e}");
+    })?;
+
+    nwm_table.set("first_boot", !reload).map_err(|e| {
         error!("Failed to set first_boot global var: {e}");
+    })?;
+
+    lua.globals().set("nwm", nwm_table).map_err(|e| {
+        error!("Failed to put table `nwm` in the globals table: {e}");
     })?;
 
     let code = std::fs::read_to_string(path).map_err(|e| {
@@ -47,9 +69,7 @@ pub fn load_config(path: &std::path::Path, reload: bool) -> Result<Config, ()> {
     Ok(config)
 }
 
-fn inject_config_api(lua: &Lua, config: Arc<Mutex<Config>>) -> mlua::Result<()> {
-    let globals = lua.globals();
-
+fn create_set_api(lua: &Lua, config: Arc<Mutex<Config>>) -> mlua::Result<mlua::Table> {
     let set_table = lua.create_table()?;
 
     macro_rules! set_usize {
@@ -112,12 +132,11 @@ fn inject_config_api(lua: &Lua, config: Arc<Mutex<Config>>) -> mlua::Result<()> 
         )?;
     }
 
-    globals.set("set", set_table)?;
+    Ok(set_table)
 
-    Ok(())
 }
 
-fn inject_action_data(lua: &Lua) -> mlua::Result<()> {
+fn create_action_data(lua: &Lua) -> mlua::Result<mlua::Table> {
     let action_table = lua.create_table()?;
 
     let focus_table = lua.create_table()?;
@@ -139,14 +158,10 @@ fn inject_action_data(lua: &Lua) -> mlua::Result<()> {
     action_table.set("next_ws", Action::NextWs)?;
     action_table.set("reload", Action::ReloadConfig)?;
 
-    lua.globals().set("action", action_table)?;
-
-    Ok(())
+    Ok(action_table)
 }
 
-fn inject_bind_api<'a>(lua: &'a Lua, config: Arc<Mutex<Config>>) -> mlua::Result<()> {
-    let globals = lua.globals();
-
+fn create_bind_api<'a>(lua: &'a Lua, config: Arc<Mutex<Config>>) -> mlua::Result<mlua::Function> {
     let bind = lua.create_function(move |_, (combo, action): (String, Action)| {
         let combo = parse_keycombo(&combo)
             .map_err(|_| mlua::Error::RuntimeError("invalid key combo".into()))?;
@@ -156,26 +171,25 @@ fn inject_bind_api<'a>(lua: &'a Lua, config: Arc<Mutex<Config>>) -> mlua::Result
         Ok(())
     })?;
 
-    globals.set("bind", bind)?;
-    Ok(())
+    Ok(bind)
 }
 
-fn inject_mod_consts(lua: &Lua) -> mlua::Result<()> {
-    let g = lua.globals();
-    g.set("Alt", SpecialKey::Alt)?;
-    g.set("Super", SpecialKey::Super)?;
-    g.set("Shift", SpecialKey::Shift)?;
-    g.set("Control", SpecialKey::Control)?;
-    Ok(())
+fn create_mod_consts(lua: &Lua) -> mlua::Result<mlua::Table> {
+    let table = lua.create_table()?;
+    table.set("Alt", SpecialKey::Alt)?;
+    table.set("Super", SpecialKey::Super)?;
+    table.set("Shift", SpecialKey::Shift)?;
+    table.set("Control", SpecialKey::Control)?;
+    Ok(table)
 }
 
-fn inject_key_consts(lua: &Lua) -> mlua::Result<()> {
-    let g = lua.globals();
-    g.set("Space", "Space")?;
-    g.set("Return", "Return")?;
-    g.set("Tab", "Tab")?;
-    g.set("Escape", "Escape")?;
-    Ok(())
+fn create_key_consts(lua: &Lua) -> mlua::Result<mlua::Table> {
+    let table = lua.create_table()?;
+    table.set("Space", "Space")?;
+    table.set("Return", "Return")?;
+    table.set("Tab", "Tab")?;
+    table.set("Escape", "Escape")?;
+    Ok(table)
 }
 
 fn parse_keycombo(s: &str) -> Result<KeyCombo, ()> {

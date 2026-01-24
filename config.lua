@@ -1,28 +1,28 @@
-set.master_key(Alt)
-set.gap(8)
-set.terminal("alacritty")
-set.launcher("dmenu_run")
-set.border_width(2)
-set.border_active_color("#ffdd33")
-set.border_inactive_color("#181818")
+nwm.set.master_key(nwm.modifier.Super)
+nwm.set.gap(8)
+nwm.set.terminal("alacritty")
+nwm.set.launcher("dmenu_run")
+nwm.set.border_width(2)
+nwm.set.border_active_color("#ffdd33")
+nwm.set.border_inactive_color("#181818")
 
-bind("h", action.focus.left)
-bind("l", action.focus.right)
+nwm.bind("h", nwm.action.focus.left)
+nwm.bind("l", nwm.action.focus.right)
 
-bind("Shift-h", action.move.left)
-bind("Shift-l", action.move.right)
+nwm.bind("Shift-h", nwm.action.move.left)
+nwm.bind("Shift-l", nwm.action.move.right)
+-- bind("Shift-q", action.quit)
 
-bind("Space", action.launcher)
-bind("Return", action.terminal)
+nwm.bind("Space", nwm.action.launcher)
+nwm.bind("Return", nwm.action.terminal)
 
-bind("w", action.close)
-bind("2", action.next_ws)
-bind("1", action.prev_ws)
+nwm.bind("w", nwm.action.close)
+nwm.bind("2", nwm.action.next_ws)
+nwm.bind("1", nwm.action.prev_ws)
 
-bind("r", action.reload)
+nwm.bind("r", nwm.action.reload)
 
-if first_boot then 
-    os.execute("polybar &")
+if nwm.first_boot then
     os.execute("pipewire &")
     os.execute("feh --bg-fill  ~/Wallpapers/wall.png &")
 end
