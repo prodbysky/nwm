@@ -78,6 +78,12 @@ fn create_set_api(lua: &Lua, config: Arc<Mutex<Config>>) -> mlua::Result<mlua::T
             set_table.set(
                 $name,
                 lua.create_function(move |_, n: usize| {
+                    if stringify!($field) == "gap" {
+                        if n == 0 {
+                            return Ok(());
+
+                        }
+                    }
                     cfg.lock().unwrap().settings.$field = n;
                     Ok(())
                 })?,
@@ -229,13 +235,39 @@ fn parse_keycombo(s: &str) -> Result<KeyCombo, ()> {
     Ok(combo)
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 pub struct Config {
     pub settings: Settings,
     pub binds: Vec<Binding>,
 }
 
-#[derive(Debug, Clone, Default)]
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            settings: Settings::default(),
+            binds: vec![
+                Binding {
+                    action: Action::Terminal,
+                    combo: KeyCombo { prefixes: vec![SpecialKey::Alt], key: Key::Return }
+                },
+                Binding {
+                    action: Action::Launcher,
+                    combo: KeyCombo { prefixes: vec![SpecialKey::Alt], key: Key::Space }
+                },
+                Binding {
+                    action: Action::CloseWindow,
+                    combo: KeyCombo { prefixes: vec![SpecialKey::Alt], key: Key::Char('w') }
+                },
+                Binding {
+                    action: Action::Quit,
+                    combo: KeyCombo { prefixes: vec![SpecialKey::Alt, SpecialKey::Shift], key: Key::Char('q') }
+                }
+            ]
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct Settings {
     pub master_key: SpecialKey,
     pub gap: usize,
@@ -244,6 +276,20 @@ pub struct Settings {
     pub border_width: usize,
     pub border_active_color: u32,
     pub border_inactive_color: u32,
+}
+
+impl Default for Settings {
+    fn default() -> Self {
+        Self {
+            master_key: SpecialKey::Alt,
+            gap: 2,
+            terminal: String::from("xterm"),
+            launcher: String::from("dmenu_run"),
+            border_width: 2,
+            border_active_color: 0xffffffff,
+            border_inactive_color: 0xff181818,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Default)]
