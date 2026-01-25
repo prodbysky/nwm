@@ -1,6 +1,7 @@
 mod better_x11rb;
 mod lua_cfg;
 mod multi_log;
+mod nw_log_connection;
 use colored::Colorize;
 
 use std::{collections::HashMap, io::Write, process::Command};
@@ -32,46 +33,6 @@ struct Nwm {
     active_border_color: u32,
     inactive_border_color: u32,
     config_path: std::path::PathBuf,
-}
-
-use std::sync::Mutex;
-
-struct NwLogLog {
-    out: Mutex<std::fs::File>,
-}
-
-impl NwLogLog {
-    pub fn init(stdin: std::fs::File) -> Self {
-        Self {
-            out: Mutex::new(stdin),
-        }
-    }
-}
-
-impl log::Log for NwLogLog {
-    fn flush(&self) {
-        if let Ok(mut stdin) = self.out.lock() {
-            let _ = stdin.flush();
-        }
-    }
-    fn log(&self, record: &log::Record) {
-        if !self.enabled(record.metadata()) {
-            return;
-        }
-
-        if let Ok(mut stdin) = self.out.lock() {
-            let _ = writeln!(
-                stdin,
-                "{} -> {}",
-                record.level().as_str().yellow(),
-                record.args()
-            );
-        }
-    }
-
-    fn enabled(&self, metadata: &log::Metadata) -> bool {
-        metadata.level() <= Level::Info
-    }
 }
 
 #[allow(dead_code)]
@@ -285,7 +246,7 @@ impl Nwm {
         multi_log::MultiLog::init(
             vec![
                 Box::new(env_logger::Logger::from_default_env()),
-                Box::new(NwLogLog::init(file)),
+                Box::new(nw_log_connection::NwLogLog::init(file)),
             ],
             log::Level::Trace,
         );
