@@ -11,9 +11,8 @@ use log::{info, warn};
 
 struct Nwm {
     x11: better_x11rb::X11RB,
-    workspaces: [Vec<WindowId>; 10],
+    workspaces: [Workspace; 10],
     curr_workspace: usize,
-    focused: [Option<usize>; 10],
     last_focused: Option<WindowId>,
     running: bool,
     last_x: i16,
@@ -32,6 +31,51 @@ struct Nwm {
     active_border_color: u32,
     inactive_border_color: u32,
     config_path: std::path::PathBuf,
+}
+
+
+#[derive(Clone, Default)]
+struct Workspace {
+    windows: Vec<WindowId>,
+    focused: Option<usize>,
+}
+
+impl Workspace {
+    pub fn windows(&self) -> &[WindowId] {
+        &self.windows
+    }
+
+    pub fn windows_mut(&mut self) -> &mut Vec<WindowId> {
+        &mut self.windows
+    }
+
+    pub fn window_count(&self) -> usize {
+        self.windows.len()
+    }
+
+    pub fn get_window_id(&self, index: usize) -> Option<&WindowId> {
+        self.windows.get(index)
+    }
+
+    pub fn remove_window(&mut self, index: usize) {
+        self.windows.remove(index);
+    }
+
+    pub fn set_focused_index(&mut self, index: Option<usize>) {
+        self.focused = index;
+    }
+
+    pub fn get_focused_index(&self) -> Option<usize> {
+        self.focused
+    }
+
+    pub fn get_focused_id(&self) -> Option<&WindowId> {
+        self.windows.get(self.focused?)
+    }
+
+    pub fn empty(&self) -> bool {
+        self.windows.is_empty()
+    }
 }
 
 #[allow(dead_code)]
@@ -235,8 +279,8 @@ impl Nwm {
         self.border_width = width;
 
         for ws in self.workspaces.clone() {
-            for w in ws {
-                self.set_window_border_width(w, self.border_width);
+            for w in ws.windows() {
+                self.set_window_border_width(*w, self.border_width);
             }
         }
 
@@ -320,7 +364,6 @@ impl Nwm {
             x11: x11_ab,
             workspaces: Default::default(),
             curr_workspace: 0,
-            focused: Default::default(),
             gap,
             running: true,
             last_x: 0,
@@ -406,7 +449,7 @@ impl Nwm {
     }
 
     fn focused(&self) -> Option<usize> {
-        self.focused[self.curr_workspace]
+        self.workspaces[self.curr_workspace].focused
     }
 
     fn close_focused(&mut self) {
@@ -416,16 +459,16 @@ impl Nwm {
     }
 
     fn close_window(&mut self, window_index: usize) {
-        if window_index < self.curr_ws().len() {
-            self.x11.close_window(self.curr_ws()[window_index]).unwrap();
-            self.curr_ws_mut().remove(window_index);
+        if window_index < self.curr_ws().window_count() {
+            self.x11.close_window(*self.curr_ws().get_window_id(window_index).unwrap()).unwrap();
+            self.curr_ws_mut().remove_window(window_index);
         }
     }
 
-    fn curr_ws_mut(&mut self) -> &mut Vec<WindowId> {
+    fn curr_ws_mut(&mut self) -> &mut Workspace {
         &mut self.workspaces[self.curr_workspace]
     }
-    fn curr_ws(&self) -> &Vec<WindowId> {
+    fn curr_ws(&self) -> &Workspace {
         &self.workspaces[self.curr_workspace]
     }
 
@@ -449,7 +492,7 @@ impl Nwm {
                         let rects = self.window_rects();
                         for (i, r) in rects.iter().enumerate() {
                             if x > r.x && x < r.x + r.w {
-                                self.focused[self.curr_workspace] = Some(i);
+                                self.curr_ws_mut().set_focused_index(Some(i));
                                 self.set_focus(i);
                             }
                         }
@@ -458,8 +501,8 @@ impl Nwm {
                     }
                 }
                 Event::EnterNotify(e) => {
-                    if let Some(i) = self.curr_ws().iter().position(|&w| w == e.event) {
-                        self.focused[self.curr_workspace] = Some(i);
+                    if let Some(i) = self.curr_ws().windows().iter().position(|&w| w == e.event) {
+                        self.curr_ws_mut().set_focused_index(Some(i));
                         self.set_focus(i);
                     }
                 }
@@ -496,10 +539,10 @@ impl Nwm {
         for (i, r) in rects.iter().enumerate() {
             if self.last_x > r.x && self.last_x < r.x + r.w {
                 self.set_window_border_pixel(
-                    self.curr_ws()[self.focused().unwrap()],
+                    *self.curr_ws().get_focused_id().unwrap(),
                     self.inactive_border_color,
                 );
-                self.focused[self.curr_workspace] = Some(i);
+                self.curr_ws_mut().set_focused_index(Some(i));
                 self.set_focus(i);
             }
         }
@@ -526,13 +569,13 @@ impl Nwm {
 
         let old_ws = self.curr_workspace;
 
-        for &w in &self.workspaces[old_ws] {
+        for &w in self.workspaces[old_ws].windows() {
             self.x11.unmap_window(w).unwrap();
         }
 
         self.curr_workspace = new_ws;
 
-        for &w in &self.workspaces[new_ws] {
+        for &w in self.workspaces[new_ws].windows() {
             self.x11.map_window(w).unwrap();
         }
 
@@ -555,7 +598,7 @@ impl Nwm {
     }
 
     fn window_rects(&self) -> Vec<Rect> {
-        if self.curr_ws().is_empty() {
+        if self.curr_ws().empty() {
             return vec![];
         }
 
@@ -569,7 +612,7 @@ impl Nwm {
         sw -= (reserved.x0 + reserved.x1) as u16;
         sh -= (reserved.y0 + reserved.y1) as u16;
 
-        let n = (self.curr_ws().len()) as i16;
+        let n = (self.curr_ws().window_count()) as i16;
         if n == 0 {
             return rs;
         }
@@ -626,20 +669,22 @@ impl Nwm {
         ).unwrap();
         self.set_window_border_width(event.window, self.border_width);
         self.set_window_border_pixel(event.window, self.inactive_border_color);
-        self.curr_ws_mut().push(event.window);
-        self.focused[self.curr_workspace] = Some(self.curr_ws().len() - 1);
+        self.curr_ws_mut().windows_mut().push(event.window);
+        let new = Some(self.curr_ws().window_count() - 1);
+        self.curr_ws_mut().set_focused_index(new);
         self.layout();
         self.x11.raise_window(event.window);
         self.x11.focus_window(event.window);
     }
 
     fn remove_window(&mut self, event: UnmapNotifyEvent) {
-        if let Some(pos) = self.curr_ws().iter().position(|&w| w == event.window) {
-            self.curr_ws_mut().remove(pos);
+        if let Some(pos) = self.curr_ws().windows().iter().position(|&w| w == event.window) {
+            self.curr_ws_mut().windows_mut().remove(pos);
             self.struts.remove(&event.window);
             if let Some(f) = self.focused() {
-                if f >= self.curr_ws().len() {
-                    self.focused[self.curr_workspace] = self.curr_ws().len().checked_sub(1);
+                if f >= self.curr_ws().window_count() {
+                    let new = self.curr_ws().window_count().checked_sub(1);
+                    self.curr_ws_mut().set_focused_index(new);
                 }
             }
         }
@@ -648,9 +693,9 @@ impl Nwm {
 
     fn swap_left(&mut self) {
         if let Some(i) = self.focused() {
-            if i > 0 && self.curr_ws().len() > i {
-                self.curr_ws_mut().swap(i, i - 1);
-                self.focused[self.curr_workspace] = Some(i - 1);
+            if i > 0 && self.curr_ws().window_count() > i {
+                self.curr_ws_mut().windows_mut().swap(i, i - 1);
+                self.curr_ws_mut().set_focused_index(Some(i - 1));
                 self.layout();
             }
         }
@@ -658,9 +703,9 @@ impl Nwm {
 
     fn swap_right(&mut self) {
         if let Some(i) = self.focused() {
-            if i + 1 < self.curr_ws().len() {
-                self.curr_ws_mut().swap(i, i + 1);
-                self.focused[self.curr_workspace] = Some(i + 1);
+            if i + 1 < self.curr_ws().window_count() {
+                self.curr_ws_mut().windows_mut().swap(i, i + 1);
+                self.curr_ws_mut().set_focused_index(Some(i + 1));
                 self.layout();
             }
         }
@@ -687,29 +732,29 @@ impl Nwm {
     }
 
     fn focus_left(&mut self) {
-        if let Some(i) = self.focused[self.curr_workspace] {
+        if let Some(i) = self.curr_ws().get_focused_index() {
             let new = i.saturating_sub(1);
-            self.focused[self.curr_workspace] = Some(new);
+            self.curr_ws_mut().set_focused_index(Some(new));
             self.set_focus(new);
         }
     }
     fn focus_right(&mut self) {
-        if let Some(i) = self.focused[self.curr_workspace] {
+        if let Some(i) = self.curr_ws().get_focused_index() {
             let new = i.saturating_add(1);
-            self.focused[self.curr_workspace] = Some(new);
+            self.curr_ws_mut().set_focused_index(Some(new));
             self.set_focus(new);
         }
     }
 
     fn layout(&mut self) {
-        if self.curr_ws().is_empty() {
+        if self.curr_ws().empty() {
             return;
         }
 
         let rects = self.window_rects();
 
         for (i, r) in rects.iter().enumerate() {
-            let w = self.curr_ws()[i];
+            let w = self.curr_ws().windows()[i];
             if self.window_is_dock(w)
                 && let Some(spa) = self.strut_partial_atom
             {
@@ -740,7 +785,7 @@ impl Nwm {
     }
 
     fn set_focus(&mut self, index: usize) {
-        let w = self.curr_ws()[index];
+        let w = self.curr_ws().windows()[index];
         if let Some(prev) = self.last_focused {
             self.set_window_border_pixel(prev, self.inactive_border_color);
         }
