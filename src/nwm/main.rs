@@ -2,13 +2,12 @@ mod better_x11rb;
 mod lua_cfg;
 mod multi_log;
 mod nw_log_connection;
-use colored::Colorize;
 
-use std::{collections::HashMap, io::Write, process::Command};
+use std::{collections::HashMap, process::Command};
 
 use better_x11rb::WindowId;
 
-use log::{Level, info, warn};
+use log::{info, warn};
 
 struct Nwm {
     x11: better_x11rb::X11RB,
@@ -157,9 +156,17 @@ fn action_to_fn(action: lua_cfg::Action) -> fn(&mut Nwm) {
         lua_cfg::Action::NextWs => Nwm::focus_next_ws,
         lua_cfg::Action::PrevWs => Nwm::focus_prev_ws,
         lua_cfg::Action::ReloadConfig => Nwm::reload_config,
-        lua_cfg::Action::Quit => |nwm: &mut Nwm | {
-            nwm.running = false;
-        },
+        lua_cfg::Action::Ws0 => |nwm: &mut Nwm| { nwm.switch_ws(0); },
+        lua_cfg::Action::Ws1 => |nwm: &mut Nwm| { nwm.switch_ws(1); },
+        lua_cfg::Action::Ws2 => |nwm: &mut Nwm| { nwm.switch_ws(2); },
+        lua_cfg::Action::Ws3 => |nwm: &mut Nwm| { nwm.switch_ws(3); },
+        lua_cfg::Action::Ws4 => |nwm: &mut Nwm| { nwm.switch_ws(4); },
+        lua_cfg::Action::Ws5 => |nwm: &mut Nwm| { nwm.switch_ws(5); },
+        lua_cfg::Action::Ws6 => |nwm: &mut Nwm| { nwm.switch_ws(6); },
+        lua_cfg::Action::Ws7 => |nwm: &mut Nwm| { nwm.switch_ws(7); },
+        lua_cfg::Action::Ws8 => |nwm: &mut Nwm| { nwm.switch_ws(8); },
+        lua_cfg::Action::Ws9 => |nwm: &mut Nwm| { nwm.switch_ws(9); },
+        lua_cfg::Action::Quit => |nwm: &mut Nwm | { nwm.running = false; },
     }
 }
 

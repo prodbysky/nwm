@@ -164,6 +164,17 @@ fn create_action_data(lua: &Lua) -> mlua::Result<mlua::Table> {
     action_table.set("next_ws", Action::NextWs)?;
     action_table.set("reload", Action::ReloadConfig)?;
     action_table.set("quit", Action::Quit)?;
+    action_table.set("ws0", Action::Ws0)?;
+    action_table.set("ws1", Action::Ws1)?;
+    action_table.set("ws2", Action::Ws2)?;
+    action_table.set("ws3", Action::Ws3)?;
+    action_table.set("ws4", Action::Ws4)?;
+    action_table.set("ws5", Action::Ws5)?;
+    action_table.set("ws6", Action::Ws6)?;
+    action_table.set("ws7", Action::Ws7)?;
+    action_table.set("ws8", Action::Ws8)?;
+    action_table.set("ws9", Action::Ws9)?;
+
 
     Ok(action_table)
 }
@@ -340,6 +351,16 @@ pub enum Action {
     PrevWs,
     ReloadConfig,
     Quit,
+    Ws0,
+    Ws1,
+    Ws2,
+    Ws3,
+    Ws4,
+    Ws5,
+    Ws6,
+    Ws7,
+    Ws8,
+    Ws9,
 }
 
 impl mlua::UserData for Action {}
