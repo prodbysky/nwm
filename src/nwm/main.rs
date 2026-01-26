@@ -18,6 +18,7 @@ struct Nwm {
     last_x: i16,
     last_y: i16,
     window_type_atom: Option<Atom>,
+    window_type_normal_atom: Option<Atom>,
     window_type_dock_atom: Option<Atom>,
     strut_partial_atom: Option<Atom>,
     active_desktop_atom: Option<Atom>,
@@ -38,6 +39,7 @@ struct Nwm {
 struct Workspace {
     windows: Vec<WindowId>,
     focused: Option<usize>,
+    floating: Vec<WindowId>
 }
 
 impl Workspace {
@@ -75,6 +77,12 @@ impl Workspace {
 
     pub fn empty(&self) -> bool {
         self.windows.is_empty()
+    }
+    pub fn push_window(&mut self, id: WindowId) {
+        self.windows.push(id);
+    }
+    pub fn push_float_window(&mut self, id: WindowId) {
+        self.floating.push(id);
     }
 }
 
@@ -336,6 +344,11 @@ impl Nwm {
                 "Failed to intern _NET_WM_WINDOW_TYPE_DOCK, emwh window type support is not present"
             );
         }
+
+        let window_type_normal_atom = x11_ab.intern_atom(b"_NET_WM_WINDOW_TYPE_NORMAL");
+        if window_type_normal_atom.is_none() {
+            warn!("Failed to intern _NET_WM_WINDOW_TYPE_NORMAL, emwh window type support is not present");
+        }
         let strut_partial_atom = x11_ab.intern_atom(b"_NET_WM_STRUT_PARTIAL");
         if strut_partial_atom.is_none() {
             warn!(
@@ -375,6 +388,7 @@ impl Nwm {
             window_type_dock_atom,
             strut_partial_atom,
             active_desktop_atom,
+            window_type_normal_atom,
             struts: HashMap::new(),
             last_focused: None,
             active_border_color: active,
@@ -651,6 +665,19 @@ impl Nwm {
         return false;
     }
 
+    fn window_is_normal(&self, w: WindowId) -> bool {
+        if let Some(wta) = self.window_type_atom
+            && let Some(wtna) = self.window_type_normal_atom
+        {
+            if let Some(types) = self.get_window_type(w, wta) {
+                if types.contains(&wtna) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
     fn add_window(&mut self, event: MapRequestEvent) {
         self.x11.map_window(event.window).unwrap();
         if let Some(spa) = self.strut_partial_atom {
@@ -662,19 +689,29 @@ impl Nwm {
         if self.window_is_dock(event.window) {
             return;
         }
-        self.x11.conn.change_window_attributes(
-            event.window,
-            &ChangeWindowAttributesAux::new()
-                .event_mask(EventMask::ENTER_WINDOW),
-        ).unwrap();
-        self.set_window_border_width(event.window, self.border_width);
-        self.set_window_border_pixel(event.window, self.inactive_border_color);
-        self.curr_ws_mut().windows_mut().push(event.window);
-        let new = Some(self.curr_ws().window_count() - 1);
-        self.curr_ws_mut().set_focused_index(new);
-        self.layout();
-        self.x11.raise_window(event.window);
-        self.x11.focus_window(event.window);
+        if self.window_is_normal(event.window) {
+            self.x11.conn.change_window_attributes(
+                event.window,
+                &ChangeWindowAttributesAux::new()
+                    .event_mask(EventMask::ENTER_WINDOW),
+            ).unwrap();
+            self.set_window_border_width(event.window, self.border_width);
+            self.set_window_border_pixel(event.window, self.inactive_border_color);
+            self.curr_ws_mut().push_window(event.window);
+            let new = Some(self.curr_ws().window_count() - 1);
+            self.curr_ws_mut().set_focused_index(new);
+            self.layout();
+            self.x11.raise_window(event.window);
+            self.x11.focus_window(event.window);
+        } else {
+            self.set_window_border_width(event.window, self.border_width);
+            self.set_window_border_pixel(event.window, self.inactive_border_color);
+            self.curr_ws_mut().push_float_window(event.window);
+            let new = Some(self.curr_ws().window_count() - 1);
+            self.curr_ws_mut().set_focused_index(new);
+            self.x11.raise_window(event.window);
+            self.x11.focus_window(event.window);
+        }
     }
 
     fn remove_window(&mut self, event: UnmapNotifyEvent) {
