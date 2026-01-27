@@ -129,7 +129,7 @@ impl X11RB {
                 warn!("Failed to grab the pointer: {e}");
             })
             .ok()?;
-        self.flush()
+        Some(())
     }
 
     fn flush(&mut self) -> Option<()> {
@@ -142,6 +142,7 @@ impl X11RB {
     }
 
     pub fn next_event(&mut self) -> Option<Event> {
+        self.conn.flush().unwrap();
         let e = self
             .conn
             .wait_for_event()
@@ -190,7 +191,7 @@ impl X11RB {
                 warn!("Failed to raise window {id} to top: {e}");
             })
             .ok()?;
-        self.flush()
+        Some(())
     }
 
     pub fn map_window(&mut self, id: WindowId) -> Option<()> {
@@ -200,7 +201,7 @@ impl X11RB {
                 warn!("Failed to map window {id}: {e}");
             })
             .ok()?;
-        self.flush()
+        Some(())
     }
 
     pub fn unmap_window(&mut self, id: WindowId) -> Option<()> {
@@ -210,7 +211,7 @@ impl X11RB {
                 warn!("Failed to unmap window {id}: {e}");
             })
             .ok()?;
-        self.flush()
+        Some(())
     }
 
     pub fn focus_window(&mut self, id: WindowId) -> Option<()> {
@@ -220,7 +221,7 @@ impl X11RB {
                 warn!("Failed to focus window {id}: {e}");
             })
             .ok()?;
-        self.flush()
+        Some(())
     }
 
     pub fn close_window(&mut self, id: WindowId) -> Option<()> {
@@ -230,7 +231,7 @@ impl X11RB {
                 warn!("Failed to close window {id}: {e}");
             })
             .ok()?;
-        self.flush()
+        Some(())
     }
 
     pub fn move_window(&mut self, id: WindowId, x: i16, y: i16) -> Option<()> {
@@ -240,7 +241,7 @@ impl X11RB {
                 warn!("Failed to move window {id}: {e}");
             })
             .ok()?;
-        self.flush()
+        Some(())
     }
 
     pub fn resize_window(&mut self, id: WindowId, w: u32, h: u32) -> Option<()> {
@@ -253,7 +254,7 @@ impl X11RB {
                 warn!("Failed to resize window {id}: {e}");
             })
             .ok()?;
-        self.flush()
+        Some(())
     }
 
     pub fn grab_key(&mut self, mask: ModMask, key: u32) -> Option<()> {
@@ -282,7 +283,7 @@ impl X11RB {
                 })
                 .ok()?;
         }
-        self.flush()
+        Some(())
     }
 
     pub fn key_to_keycode(&self, c: u32) -> u32 {

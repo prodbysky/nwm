@@ -175,6 +175,17 @@ fn create_action_data(lua: &Lua) -> mlua::Result<mlua::Table> {
     action_table.set("ws8", Action::Ws8)?;
     action_table.set("ws9", Action::Ws9)?;
 
+    action_table.set("move_to_ws0", Action::MoveToWs0)?;
+    action_table.set("move_to_ws1", Action::MoveToWs1)?;
+    action_table.set("move_to_ws2", Action::MoveToWs2)?;
+    action_table.set("move_to_ws3", Action::MoveToWs3)?;
+    action_table.set("move_to_ws4", Action::MoveToWs4)?;
+    action_table.set("move_to_ws5", Action::MoveToWs5)?;
+    action_table.set("move_to_ws6", Action::MoveToWs6)?;
+    action_table.set("move_to_ws7", Action::MoveToWs7)?;
+    action_table.set("move_to_ws8", Action::MoveToWs8)?;
+    action_table.set("move_to_ws9", Action::MoveToWs9)?;
+
 
     Ok(action_table)
 }
@@ -361,6 +372,16 @@ pub enum Action {
     Ws7,
     Ws8,
     Ws9,
+    MoveToWs0,
+    MoveToWs1,
+    MoveToWs2,
+    MoveToWs3,
+    MoveToWs4,
+    MoveToWs5,
+    MoveToWs6,
+    MoveToWs7,
+    MoveToWs8,
+    MoveToWs9,
 }
 
 impl mlua::UserData for Action {}

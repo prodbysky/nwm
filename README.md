@@ -10,6 +10,7 @@ A basic tiling window manager written in Rust for X11, designed for still undete
  - 10 workspaces
  - Partial EWMH support - support for docks (polybar, ...)
  - Configurable (via lua)
+ - Floating window support :)
 
 ## Installation
 Ensure you have Cargo installed then build.

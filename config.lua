@@ -31,6 +31,17 @@ nwm.bind("8", nwm.action.ws7)
 nwm.bind("9", nwm.action.ws8)
 nwm.bind("0", nwm.action.ws9)
 
+nwm.bind("Shift-1", nwm.action.move_to_ws0)
+nwm.bind("Shift-2", nwm.action.move_to_ws1)
+nwm.bind("Shift-3", nwm.action.move_to_ws2)
+nwm.bind("Shift-4", nwm.action.move_to_ws3)
+nwm.bind("Shift-5", nwm.action.move_to_ws4)
+nwm.bind("Shift-6", nwm.action.move_to_ws5)
+nwm.bind("Shift-7", nwm.action.move_to_ws6)
+nwm.bind("Shift-8", nwm.action.move_to_ws7)
+nwm.bind("Shift-9", nwm.action.move_to_ws8)
+nwm.bind("Shift-0", nwm.action.move_to_ws9)
+
 nwm.bind("r", nwm.action.reload)
 
 if nwm.first_boot then

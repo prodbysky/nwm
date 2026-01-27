@@ -113,6 +113,10 @@ impl Workspace {
         self.floating.insert(id, geometry);
     }
 
+    pub fn get_geometry(&self, id: WindowId) -> Geometry {
+        *self.floating.get(&id).unwrap()
+    }
+
     pub fn focus_tiled_left(&mut self) {
         if let Some(f) = self.focused {
             if let Some(p) = self.windows.iter().position(|x| *x == f) {
@@ -161,6 +165,10 @@ impl Workspace {
         }
         self.windows.swap(pos, pos + 1);
         self.focused = self.windows.get(pos - 1).copied();
+    }
+
+    fn is_floating(&mut self, id: WindowId) -> bool {
+        self.floating.contains_key(&id)
     }
 }
 
@@ -296,6 +304,16 @@ fn action_to_fn(action: lua_cfg::Action) -> fn(&mut Nwm) {
         lua_cfg::Action::Ws7 => |nwm: &mut Nwm| { nwm.switch_ws(7); },
         lua_cfg::Action::Ws8 => |nwm: &mut Nwm| { nwm.switch_ws(8); },
         lua_cfg::Action::Ws9 => |nwm: &mut Nwm| { nwm.switch_ws(9); },
+        lua_cfg::Action::MoveToWs0 => |nwm: &mut Nwm| { nwm.move_focused_to_ws(0); },
+        lua_cfg::Action::MoveToWs1 => |nwm: &mut Nwm| { nwm.move_focused_to_ws(1); },
+        lua_cfg::Action::MoveToWs2 => |nwm: &mut Nwm| { nwm.move_focused_to_ws(2); },
+        lua_cfg::Action::MoveToWs3 => |nwm: &mut Nwm| { nwm.move_focused_to_ws(3); },
+        lua_cfg::Action::MoveToWs4 => |nwm: &mut Nwm| { nwm.move_focused_to_ws(4); },
+        lua_cfg::Action::MoveToWs5 => |nwm: &mut Nwm| { nwm.move_focused_to_ws(5); },
+        lua_cfg::Action::MoveToWs6 => |nwm: &mut Nwm| { nwm.move_focused_to_ws(6); },
+        lua_cfg::Action::MoveToWs7 => |nwm: &mut Nwm| { nwm.move_focused_to_ws(7); },
+        lua_cfg::Action::MoveToWs8 => |nwm: &mut Nwm| { nwm.move_focused_to_ws(8); },
+        lua_cfg::Action::MoveToWs9 => |nwm: &mut Nwm| { nwm.move_focused_to_ws(9); },
         lua_cfg::Action::Quit => |nwm: &mut Nwm | { nwm.running = false; },
     }
 }
@@ -340,6 +358,19 @@ impl Nwm {
             settings.border_inactive_color,
             settings.border_width as u8,
         )
+    }
+
+    fn move_focused_to_ws(&mut self, ws: usize) {
+        if let Some(id) = self.curr_ws().get_focused_id() {
+            if self.curr_ws_mut().is_floating(id) {
+                let g = self.curr_ws().get_geometry(id);
+                self.workspaces[ws].push_float_window(id, g);
+            } else {
+                self.workspaces[ws].push_window(id);
+            }
+            self.x11.unmap_window(id).unwrap();
+            self.curr_ws_mut().remove_window(id);
+        }
     }
 
     fn reload_config(&mut self) {
@@ -726,7 +757,6 @@ impl Nwm {
                 )
                 .unwrap();
         }
-        self.x11.conn.flush().unwrap();
 
         self.layout();
         self.focus_on_pointer();
