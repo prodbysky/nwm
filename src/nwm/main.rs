@@ -132,19 +132,27 @@ impl Workspace {
     }
 
     pub fn tiled_swap_left(&mut self) {
-        let pos = self.windows.iter().position(|x| *x == self.focused.unwrap()).unwrap();
+        let f = match self.focused {
+            Some(f) => f,
+            None => return
+        };
+        let pos = match self.windows.iter().position(|x| *x == f) {
+            Some(p) => p,
+            None => return
+        };
         if pos == 0 {
             return;
         }
         self.windows.swap(pos, pos - 1);
-        self.focused = self.windows.get(pos - 1).map(|x| *x);
+        self.focused = self.windows.get(pos - 1).copied();
     }
 
     pub fn tiled_swap_right(&mut self) {
-        if self.focused.is_none() {
-            return;
-        }
-        let pos = match self.windows.iter().position(|x| *x == self.focused.unwrap()) {
+        let f = match self.focused {
+            Some(f) => f,
+            None => return
+        };
+        let pos = match self.windows.iter().position(|x| *x == f) {
             Some(p) => p,
             None => return
         };
@@ -152,7 +160,7 @@ impl Workspace {
             return;
         }
         self.windows.swap(pos, pos + 1);
-        self.focused = self.windows.get(pos + 1).map(|x| *x);
+        self.focused = self.windows.get(pos - 1).copied();
     }
 }
 
