@@ -905,11 +905,16 @@ impl Nwm {
 
     fn focus_left(&mut self) {
         self.curr_ws_mut().focus_tiled_left();
-        self.set_focus(self.curr_ws().get_focused_id().unwrap());
+        if let Some(id) = self.curr_ws().get_focused_id() {
+            self.set_focus(id);
+        }
     }
+
     fn focus_right(&mut self) {
         self.curr_ws_mut().focus_tiled_right();
-        self.set_focus(self.curr_ws().get_focused_id().unwrap());
+        if let Some(id) = self.curr_ws().get_focused_id() {
+            self.set_focus(id);
+        }
     }
 
     fn layout(&mut self) {
