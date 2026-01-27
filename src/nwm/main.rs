@@ -368,6 +368,9 @@ impl Nwm {
             for w in ws.windows() {
                 self.set_window_border_width(*w, self.border_width);
             }
+            for w in ws.floating.keys() {
+                self.set_window_border_width(*w, self.border_width);
+            }
         }
 
         info!("Reloaded lua config");
