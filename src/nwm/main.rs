@@ -828,16 +828,25 @@ impl Nwm {
             self.layout();
             self.x11.focus_window(event.window);
         } else {
-            self.x11.conn.change_window_attributes(
+                    self.x11.conn.change_window_attributes(
                 event.window,
                 &ChangeWindowAttributesAux::new()
                     .event_mask(EventMask::ENTER_WINDOW),
             ).unwrap();
-            let (w, h) = x11rb::properties::WmSizeHints::get_normal_hints(&self.x11.conn, event.window).unwrap().reply().unwrap().unwrap().min_size.unwrap();
+            let (w, h) = x11rb::properties::WmSizeHints::get_normal_hints(&self.x11.conn, event.window)
+                .ok()
+                .and_then(|c| c.reply().ok())
+                .and_then(|h| h)
+                .and_then(|h| h.min_size)
+                .or_else(|| {
+                    self.x11.conn.get_geometry(event.window).ok()
+                        .and_then(|c| c.reply().ok())
+                        .map(|g| (g.width as i32, g.height as i32))
+                })
+                .unwrap_or((200, 150));
             let (sw, sh) = self.x11.screen_size();
             let (x, y) = ((sw / 2) as i16 - (w / 2) as i16, (sh / 2) as i16 - (h / 2) as i16);
-            self.curr_ws_mut().push_float_window(event.window, Geometry { x, y, w: w as i16, h: h as i16 });
-            self.set_focus(event.window);
+            self.curr_ws_mut().push_float_window(event.window, Geometry { x, y, w: w as i16, h: h as i16 });    self.set_focus(event.window);
             self.set_window_border_width(event.window, self.border_width);
             self.set_window_border_pixel(event.window, self.inactive_border_color);
 
