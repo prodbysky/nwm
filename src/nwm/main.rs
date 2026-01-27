@@ -32,6 +32,7 @@ struct Nwm {
     active_border_color: u32,
     inactive_border_color: u32,
     config_path: std::path::PathBuf,
+    suppress_cursor_focus: bool,
 }
 
 
@@ -46,7 +47,7 @@ struct Geometry {
 #[derive(Clone, Default)]
 struct Workspace {
     windows: Vec<WindowId>,
-    focused: Option<usize>,
+    focused: Option<WindowId>,
     floating: HashMap<WindowId, Geometry>
 }
 
@@ -63,34 +64,82 @@ impl Workspace {
         self.windows.len()
     }
 
-    pub fn get_window_id(&self, index: usize) -> Option<&WindowId> {
+    pub fn remove_window(&mut self, id: WindowId) {
+        if let Some(p) = self.windows.iter().position(|i| id == *i) {
+            self.windows.remove(p);
+            return;
+        }
+        self.floating.remove(&id);
+    }
+
+    pub fn set_focused_id(&mut self, id: WindowId) {
+        self.focused = Some(id);
+    }
+
+    pub fn set_focused_to_newest_tiled_window(&mut self) {
+        self.focused = self.windows.last().map(|x| *x);
+    }
+
+    pub fn get_tiled_window_id(&self, index: usize) -> Option<&WindowId> {
         self.windows.get(index)
     }
 
-    pub fn remove_window(&mut self, index: usize) {
-        self.windows.remove(index);
-    }
-
-    pub fn set_focused_index(&mut self, index: Option<usize>) {
-        self.focused = index;
-    }
-
-    pub fn get_focused_index(&self) -> Option<usize> {
+    pub fn get_focused_id(&self) -> Option<WindowId> {
         self.focused
     }
 
-    pub fn get_focused_id(&self) -> Option<&WindowId> {
-        self.windows.get(self.focused?)
+    pub fn empty(&self) -> bool {
+        self.windows.is_empty() && self.floating.is_empty()
     }
 
-    pub fn empty(&self) -> bool {
-        self.windows.is_empty()
-    }
     pub fn push_window(&mut self, id: WindowId) {
         self.windows.push(id);
     }
+
     pub fn push_float_window(&mut self, id: WindowId, geometry: Geometry) {
         self.floating.insert(id, geometry);
+    }
+
+    pub fn focus_tiled_left(&mut self) {
+        if let Some(f) = self.focused {
+            if let Some(p) = self.windows.iter().position(|x| *x == f) {
+                let new_pos = p.saturating_sub(1).clamp(0, self.window_count() - 1);
+                self.focused = Some(self.windows[new_pos]);
+            }
+        }
+    }
+
+    pub fn focus_tiled_right(&mut self) {
+        if let Some(f) = self.focused {
+            if let Some(p) = self.windows.iter().position(|x| *x == f) {
+                let new_pos = p.saturating_add(1).clamp(0, self.window_count() - 1);
+                self.focused = Some(self.windows[new_pos]);
+            }
+        }
+    }
+
+    pub fn tiled_swap_left(&mut self) {
+        let pos = self.windows.iter().position(|x| *x == self.focused.unwrap()).unwrap();
+        if pos == 0 {
+            return;
+        }
+        self.windows.swap(pos, pos - 1);
+        self.focused = self.windows.get(pos - 1).map(|x| *x);
+    }
+
+    pub fn tiled_swap_right(&mut self) {
+        if self.focused.is_none() {
+            return;
+        }
+        let pos = match self.windows.iter().position(|x| *x == self.focused.unwrap()) {
+            Some(p) => p,
+            None => return
+        };
+        if pos == self.window_count() - 1 {
+            return;
+        }
+        self.windows.swap(pos, pos + 1);
+        self.focused = self.windows.get(pos + 1).map(|x| *x);
     }
 }
 
@@ -403,7 +452,21 @@ impl Nwm {
             inactive_border_color: inactive,
             border_width: width,
             config_path: conf_dir,
+            suppress_cursor_focus: false,
         })
+    }
+    fn refocus_and_warp(&mut self, id: WindowId) {
+        if let Some((_, r)) = self
+            .tiled_window_rects()
+            .into_iter()
+            .find(|(w, _)| *w == id)
+        {
+            let cx = r.x + r.w / 2;
+            let cy = r.y + r.h / 2;
+            self.x11.conn.warp_pointer(x11rb::NONE, self.x11.root_window(), r.x, r.y, r.w as u16, r.h as u16, cx, cy).unwrap();
+        }
+
+        self.set_focus(id);
     }
 
     fn get_window_type(&self, w: WindowId, atom: Atom) -> Option<Vec<Atom>> {
@@ -470,7 +533,7 @@ impl Nwm {
         self.switch_ws((self.curr_workspace - 1).clamp(0, 10));
     }
 
-    fn focused(&self) -> Option<usize> {
+    fn focused(&self) -> Option<WindowId> {
         self.workspaces[self.curr_workspace].focused
     }
 
@@ -480,11 +543,9 @@ impl Nwm {
         }
     }
 
-    fn close_window(&mut self, window_index: usize) {
-        if window_index < self.curr_ws().window_count() {
-            self.x11.close_window(*self.curr_ws().get_window_id(window_index).unwrap()).unwrap();
-            self.curr_ws_mut().remove_window(window_index);
-        }
+    fn close_window(&mut self, id: WindowId) {
+        self.x11.close_window(id).unwrap();
+        // self.curr_ws_mut().remove_window(id);
     }
 
     fn curr_ws_mut(&mut self) -> &mut Workspace {
@@ -509,13 +570,16 @@ impl Nwm {
                     }
                 }
                 Event::MotionNotify(_) => {
+                    if self.suppress_cursor_focus {
+                        continue;
+                    }
                     let (x, y) = self.x11.mouse_pos();
                     if self.last_x != x || self.last_y != y {
-                        let rects = self.window_rects();
-                        for (i, r) in rects.iter().enumerate() {
+                        let rects = self.tiled_window_rects();
+                        for (i, r) in rects.iter() {
                             if x > r.x && x < r.x + r.w {
-                                self.curr_ws_mut().set_focused_index(Some(i));
-                                self.set_focus(i);
+                                self.curr_ws_mut().set_focused_id(*i);
+                                self.set_focus(*i);
                             }
                         }
                         self.last_x = x;
@@ -523,10 +587,8 @@ impl Nwm {
                     }
                 }
                 Event::EnterNotify(e) => {
-                    if let Some(i) = self.curr_ws().windows().iter().position(|&w| w == e.event) {
-                        self.curr_ws_mut().set_focused_index(Some(i));
-                        self.set_focus(i);
-                    }
+                    self.curr_ws_mut().set_focused_id(e.event);
+                    self.set_focus(e.event);
                 }
                 Event::KeyRelease(_) => {}
                 Event::MappingNotify(_) => {}
@@ -557,15 +619,34 @@ impl Nwm {
     }
 
     fn focus_on_pointer(&mut self) {
-        let rects = self.window_rects();
-        for (i, r) in rects.iter().enumerate() {
-            if self.last_x > r.x && self.last_x < r.x + r.w {
+        let rects = self.floating_window_rects();
+
+        for (id, r) in rects.iter() {
+            if 
+                self.last_x > r.x && self.last_x < r.x + r.w &&
+                self.last_y > r.y && self.last_y < r.y + r.h 
+            {
                 self.set_window_border_pixel(
-                    *self.curr_ws().get_focused_id().unwrap(),
+                    *id,
                     self.inactive_border_color,
                 );
-                self.curr_ws_mut().set_focused_index(Some(i));
-                self.set_focus(i);
+                self.curr_ws_mut().set_focused_id(*id);
+                self.set_focus(*id);
+                return;
+            }
+        }
+
+
+        let rects = self.tiled_window_rects();
+        for (i, r) in rects.iter() {
+            if self.last_x > r.x && self.last_x < r.x + r.w {
+                self.set_window_border_pixel(
+                    *i,
+                    self.inactive_border_color,
+                );
+                self.curr_ws_mut().set_focused_id(*i);
+                self.set_focus(*i);
+                return;
             }
         }
     }
@@ -619,7 +700,7 @@ impl Nwm {
         self.focus_on_pointer();
     }
 
-    fn window_rects(&self) -> Vec<Rect> {
+    fn tiled_window_rects(&self) -> Vec<(WindowId, Rect)> {
         if self.curr_ws().empty() {
             return vec![];
         }
@@ -653,11 +734,19 @@ impl Nwm {
             let h = sh as i16 - gap * 2;
 
             if w > 0 && h > 0 {
-                rs.push(Rect { x, y, w, h });
+                rs.push((*self.curr_ws().get_tiled_window_id(i as usize).unwrap(), Rect { x, y, w, h }));
             }
         }
 
         rs
+    }
+
+    fn floating_window_rects(&self) -> Vec<(WindowId, Rect)> {
+        let mut vs = vec![];
+        for (id, &Geometry { x, y, w, h }) in self.curr_ws().floating.iter() {
+            vs.push((*id, Rect { x, y, w, h }));
+        }
+        vs
     }
 
     fn window_is_dock(&self, w: WindowId) -> bool {
@@ -706,20 +795,23 @@ impl Nwm {
             self.set_window_border_width(event.window, self.border_width);
             self.set_window_border_pixel(event.window, self.inactive_border_color);
             self.curr_ws_mut().push_window(event.window);
-            let new = Some(self.curr_ws().window_count() - 1);
-            self.curr_ws_mut().set_focused_index(new);
+            self.curr_ws_mut().set_focused_to_newest_tiled_window();
             self.layout();
-            self.x11.raise_window(event.window);
             self.x11.focus_window(event.window);
         } else {
-            self.set_window_border_width(event.window, self.border_width);
-            self.set_window_border_pixel(event.window, self.inactive_border_color);
+            self.x11.conn.change_window_attributes(
+                event.window,
+                &ChangeWindowAttributesAux::new()
+                    .event_mask(EventMask::ENTER_WINDOW),
+            ).unwrap();
             let (w, h) = x11rb::properties::WmSizeHints::get_normal_hints(&self.x11.conn, event.window).unwrap().reply().unwrap().unwrap().min_size.unwrap();
             let (sw, sh) = self.x11.screen_size();
             let (x, y) = ((sw / 2) as i16 - (w / 2) as i16, (sh / 2) as i16 - (h / 2) as i16);
             self.curr_ws_mut().push_float_window(event.window, Geometry { x, y, w: w as i16, h: h as i16 });
-            let new = Some(self.curr_ws().window_count() - 1);
-            self.curr_ws_mut().set_focused_index(new);
+            self.set_focus(event.window);
+            self.set_window_border_width(event.window, self.border_width);
+            self.set_window_border_pixel(event.window, self.inactive_border_color);
+
             self.x11.resize_window(event.window, w as u32, h as u32);
             self.x11.move_window(event.window, x, y);
             self.x11.raise_window(event.window);
@@ -728,37 +820,29 @@ impl Nwm {
     }
 
     fn remove_window(&mut self, event: UnmapNotifyEvent) {
-        if let Some(pos) = self.curr_ws().windows().iter().position(|&w| w == event.window) {
-            self.curr_ws_mut().windows_mut().remove(pos);
-            self.struts.remove(&event.window);
-            if let Some(f) = self.focused() {
-                if f >= self.curr_ws().window_count() {
-                    let new = self.curr_ws().window_count().checked_sub(1);
-                    self.curr_ws_mut().set_focused_index(new);
-                }
-            }
-        }
+        self.struts.remove(&event.window);
+        self.curr_ws_mut().remove_window(event.window);
         self.layout();
     }
 
     fn swap_left(&mut self) {
-        if let Some(i) = self.focused() {
-            if i > 0 && self.curr_ws().window_count() > i {
-                self.curr_ws_mut().windows_mut().swap(i, i - 1);
-                self.curr_ws_mut().set_focused_index(Some(i - 1));
-                self.layout();
-            }
+        self.suppress_cursor_focus = true;
+        self.curr_ws_mut().tiled_swap_left();
+        self.layout();
+        if let Some(f) = self.curr_ws().focused {
+            self.refocus_and_warp(f);
         }
+        self.suppress_cursor_focus = false;
     }
 
     fn swap_right(&mut self) {
-        if let Some(i) = self.focused() {
-            if i + 1 < self.curr_ws().window_count() {
-                self.curr_ws_mut().windows_mut().swap(i, i + 1);
-                self.curr_ws_mut().set_focused_index(Some(i + 1));
-                self.layout();
-            }
+        self.suppress_cursor_focus = true;
+        self.curr_ws_mut().tiled_swap_right();
+        self.layout();
+        if let Some(f) = self.curr_ws().focused {
+            self.refocus_and_warp(f);
         }
+        self.suppress_cursor_focus = false;
     }
 
     fn launcher(&mut self) {
@@ -782,18 +866,12 @@ impl Nwm {
     }
 
     fn focus_left(&mut self) {
-        if let Some(i) = self.curr_ws().get_focused_index() {
-            let new = i.saturating_sub(1);
-            self.curr_ws_mut().set_focused_index(Some(new));
-            self.set_focus(new);
-        }
+        self.curr_ws_mut().focus_tiled_left();
+        self.set_focus(self.curr_ws().get_focused_id().unwrap());
     }
     fn focus_right(&mut self) {
-        if let Some(i) = self.curr_ws().get_focused_index() {
-            let new = i.saturating_add(1);
-            self.curr_ws_mut().set_focused_index(Some(new));
-            self.set_focus(new);
-        }
+        self.curr_ws_mut().focus_tiled_right();
+        self.set_focus(self.curr_ws().get_focused_id().unwrap());
     }
 
     fn layout(&mut self) {
@@ -801,16 +879,15 @@ impl Nwm {
             return;
         }
 
-        let rects = self.window_rects();
+        let rects = self.tiled_window_rects();
 
-        for (i, r) in rects.iter().enumerate() {
-            let w = self.curr_ws().windows()[i];
-            if self.window_is_dock(w)
+        for (w, r) in rects.iter() {
+            if self.window_is_dock(*w)
                 && let Some(spa) = self.strut_partial_atom
             {
-                if let Some(strut) = self.get_strut_partial(w, spa) {
+                if let Some(strut) = self.get_strut_partial(*w, spa) {
                     self.struts.insert(
-                        w,
+                        *w,
                         Strut {
                             left: strut[0],
                             right: strut[1],
@@ -829,23 +906,21 @@ impl Nwm {
                     continue;
                 }
             }
-            self.x11.move_window(w, r.x, r.y).unwrap();
-            self.x11.resize_window(w, r.w as u32, r.h as u32).unwrap();
+            self.x11.move_window(*w, r.x, r.y).unwrap();
+            self.x11.resize_window(*w, r.w as u32, r.h as u32).unwrap();
         }
     }
 
-    fn set_focus(&mut self, index: usize) {
-        let w = self.curr_ws().windows()[index];
+    fn set_focus(&mut self, id: WindowId) {
         if let Some(prev) = self.last_focused {
             self.set_window_border_pixel(prev, self.inactive_border_color);
         }
 
-        self.set_window_border_pixel(w, self.active_border_color);
+        self.set_window_border_pixel(id, self.active_border_color);
+        let _ = self.x11.focus_window(id);
 
-        let _ = self.x11.raise_window(w);
-        let _ = self.x11.focus_window(w);
-
-        self.last_focused = Some(w);
+        self.curr_ws_mut().focused = Some(id);
+        self.last_focused = Some(id);
     }
 }
 
