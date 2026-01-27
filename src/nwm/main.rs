@@ -676,10 +676,18 @@ impl Nwm {
             self.x11.unmap_window(w).unwrap();
         }
 
+        for w in self.workspaces[old_ws].floating.keys() {
+            self.x11.unmap_window(*w).unwrap();
+        }
+
         self.curr_workspace = new_ws;
 
         for &w in self.workspaces[new_ws].windows() {
             self.x11.map_window(w).unwrap();
+        }
+
+        for w in self.workspaces[new_ws].floating.keys() {
+            self.x11.map_window(*w).unwrap();
         }
 
         if let Some(ada) = self.active_desktop_atom {
