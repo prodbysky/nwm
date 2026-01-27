@@ -65,6 +65,19 @@ impl Workspace {
     }
 
     pub fn remove_window(&mut self, id: WindowId) {
+        let was_focused = self.focused == Some(id);
+        if let Some(p) = self.windows().iter().position(|i| id == *i) {
+            self.windows.remove(p);
+        } else {
+            self.floating.remove(&id);
+        }
+        if was_focused {
+            self.focused = self
+                .windows
+                .last()
+                .copied()
+                .or_else(|| self.floating.keys().next().copied());
+        }
         if let Some(p) = self.windows.iter().position(|i| id == *i) {
             self.windows.remove(p);
             return;
