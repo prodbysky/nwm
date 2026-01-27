@@ -35,11 +35,19 @@ struct Nwm {
 }
 
 
+#[derive(Debug, Copy, Clone, Default)]
+struct Geometry {
+    x: i16,
+    y: i16,
+    w: i16,
+    h: i16,
+}
+
 #[derive(Clone, Default)]
 struct Workspace {
     windows: Vec<WindowId>,
     focused: Option<usize>,
-    floating: Vec<WindowId>
+    floating: HashMap<WindowId, Geometry>
 }
 
 impl Workspace {
@@ -81,8 +89,8 @@ impl Workspace {
     pub fn push_window(&mut self, id: WindowId) {
         self.windows.push(id);
     }
-    pub fn push_float_window(&mut self, id: WindowId) {
-        self.floating.push(id);
+    pub fn push_float_window(&mut self, id: WindowId, geometry: Geometry) {
+        self.floating.insert(id, geometry);
     }
 }
 
@@ -706,9 +714,14 @@ impl Nwm {
         } else {
             self.set_window_border_width(event.window, self.border_width);
             self.set_window_border_pixel(event.window, self.inactive_border_color);
-            self.curr_ws_mut().push_float_window(event.window);
+            let (w, h) = x11rb::properties::WmSizeHints::get_normal_hints(&self.x11.conn, event.window).unwrap().reply().unwrap().unwrap().min_size.unwrap();
+            let (sw, sh) = self.x11.screen_size();
+            let (x, y) = ((sw / 2) as i16 - (w / 2) as i16, (sh / 2) as i16 - (h / 2) as i16);
+            self.curr_ws_mut().push_float_window(event.window, Geometry { x, y, w: w as i16, h: h as i16 });
             let new = Some(self.curr_ws().window_count() - 1);
             self.curr_ws_mut().set_focused_index(new);
+            self.x11.resize_window(event.window, w as u32, h as u32);
+            self.x11.move_window(event.window, x, y);
             self.x11.raise_window(event.window);
             self.x11.focus_window(event.window);
         }
