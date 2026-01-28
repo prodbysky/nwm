@@ -246,10 +246,7 @@ impl X11RB {
 
     pub fn resize_window(&mut self, id: WindowId, w: u32, h: u32) -> Option<()> {
         self.conn
-            .configure_window(
-                id,
-                &ConfigureWindowAux::new().width(w as u32).height(h as u32),
-            )
+            .configure_window(id, &ConfigureWindowAux::new().width(w).height(h))
             .map_err(|e| {
                 warn!("Failed to resize window {id}: {e}");
             })

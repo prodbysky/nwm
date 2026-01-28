@@ -1,7 +1,7 @@
-use std::sync::Mutex;
-use log::Level;
 use colored::Colorize;
+use log::Level;
 use std::io::Write;
+use std::sync::Mutex;
 
 pub struct NwLogLog {
     out: Mutex<std::fs::File>,

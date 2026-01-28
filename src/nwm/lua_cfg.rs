@@ -12,35 +12,60 @@ pub fn load_config(path: &std::path::Path, reload: bool) -> Result<Config, ()> {
 
     let config = Arc::new(Mutex::new(Config::default()));
 
-    nwm_table.set("set", create_set_api(&lua, config.clone()).map_err(|e| {
-        error!("Failed to create `set` api table: {e}");
-    })?).map_err(|e| {
-        error!("Failed to put `set` api table in the `nwm` table: {e}");
-    })?;
+    nwm_table
+        .set(
+            "set",
+            create_set_api(&lua, config.clone()).map_err(|e| {
+                error!("Failed to create `set` api table: {e}");
+            })?,
+        )
+        .map_err(|e| {
+            error!("Failed to put `set` api table in the `nwm` table: {e}");
+        })?;
 
-    nwm_table.set("action", create_action_data(&lua).map_err(|e| {
-        error!("Failed to create `action` data table: {e}");
-    })?).map_err(|e| {
-        error!("Failed to put `action` data table in the `nwm` table: {e}");
-    })?;
+    nwm_table
+        .set(
+            "action",
+            create_action_data(&lua).map_err(|e| {
+                error!("Failed to create `action` data table: {e}");
+            })?,
+        )
+        .map_err(|e| {
+            error!("Failed to put `action` data table in the `nwm` table: {e}");
+        })?;
 
-    nwm_table.set("bind", create_bind_api(&lua, config.clone()).map_err(|e| {
-        error!("Failed to create `bind` function: {e}");
-    })?).map_err(|e| {
-        error!("Failed to put `bind` function in the `nwm` table: {e}");
-    })?;
+    nwm_table
+        .set(
+            "bind",
+            create_bind_api(&lua, config.clone()).map_err(|e| {
+                error!("Failed to create `bind` function: {e}");
+            })?,
+        )
+        .map_err(|e| {
+            error!("Failed to put `bind` function in the `nwm` table: {e}");
+        })?;
 
-    nwm_table.set("key", create_key_consts(&lua).map_err(|e| {
-        error!("Failed to create `key` table: {e}");
-    })?).map_err(|e| {
-        error!("Failed to put `key` table in the `nwm` table: {e}");
-    })?;
+    nwm_table
+        .set(
+            "key",
+            create_key_consts(&lua).map_err(|e| {
+                error!("Failed to create `key` table: {e}");
+            })?,
+        )
+        .map_err(|e| {
+            error!("Failed to put `key` table in the `nwm` table: {e}");
+        })?;
 
-    nwm_table.set("modifier", create_mod_consts(&lua).map_err(|e| {
-        error!("Failed to create `modifiers` table: {e}");
-    })?).map_err(|e| {
-        error!("Failed to put `modifiers` table in the `nwm` table: {e}");
-    })?;
+    nwm_table
+        .set(
+            "modifier",
+            create_mod_consts(&lua).map_err(|e| {
+                error!("Failed to create `modifiers` table: {e}");
+            })?,
+        )
+        .map_err(|e| {
+            error!("Failed to put `modifiers` table in the `nwm` table: {e}");
+        })?;
 
     nwm_table.set("first_boot", !reload).map_err(|e| {
         error!("Failed to set first_boot global var: {e}");
@@ -81,7 +106,6 @@ fn create_set_api(lua: &Lua, config: Arc<Mutex<Config>>) -> mlua::Result<mlua::T
                     if stringify!($field) == "gap" {
                         if n == 0 {
                             return Ok(());
-
                         }
                     }
                     cfg.lock().unwrap().settings.$field = n;
@@ -139,7 +163,6 @@ fn create_set_api(lua: &Lua, config: Arc<Mutex<Config>>) -> mlua::Result<mlua::T
     }
 
     Ok(set_table)
-
 }
 
 fn create_action_data(lua: &Lua) -> mlua::Result<mlua::Table> {
@@ -186,11 +209,10 @@ fn create_action_data(lua: &Lua) -> mlua::Result<mlua::Table> {
     action_table.set("move_to_ws8", Action::MoveToWs8)?;
     action_table.set("move_to_ws9", Action::MoveToWs9)?;
 
-
     Ok(action_table)
 }
 
-fn create_bind_api<'a>(lua: &'a Lua, config: Arc<Mutex<Config>>) -> mlua::Result<mlua::Function> {
+fn create_bind_api(lua: &Lua, config: Arc<Mutex<Config>>) -> mlua::Result<mlua::Function> {
     let bind = lua.create_function(move |_, (combo, action): (String, Action)| {
         let combo = parse_keycombo(&combo)
             .map_err(|_| mlua::Error::RuntimeError("invalid key combo".into()))?;
@@ -270,21 +292,33 @@ impl Default for Config {
             binds: vec![
                 Binding {
                     action: Action::Terminal,
-                    combo: KeyCombo { prefixes: vec![SpecialKey::Alt], key: Key::Return }
+                    combo: KeyCombo {
+                        prefixes: vec![SpecialKey::Alt],
+                        key: Key::Return,
+                    },
                 },
                 Binding {
                     action: Action::Launcher,
-                    combo: KeyCombo { prefixes: vec![SpecialKey::Alt], key: Key::Space }
+                    combo: KeyCombo {
+                        prefixes: vec![SpecialKey::Alt],
+                        key: Key::Space,
+                    },
                 },
                 Binding {
                     action: Action::CloseWindow,
-                    combo: KeyCombo { prefixes: vec![SpecialKey::Alt], key: Key::Char('w') }
+                    combo: KeyCombo {
+                        prefixes: vec![SpecialKey::Alt],
+                        key: Key::Char('w'),
+                    },
                 },
                 Binding {
                     action: Action::Quit,
-                    combo: KeyCombo { prefixes: vec![SpecialKey::Alt, SpecialKey::Shift], key: Key::Char('q') }
-                }
-            ]
+                    combo: KeyCombo {
+                        prefixes: vec![SpecialKey::Alt, SpecialKey::Shift],
+                        key: Key::Char('q'),
+                    },
+                },
+            ],
         }
     }
 }
@@ -405,7 +439,6 @@ pub enum SpecialKey {
     Control,
     Alt,
     Super,
-    Space,
 }
 
 impl mlua::UserData for SpecialKey {}
@@ -422,15 +455,13 @@ impl mlua::FromLua for SpecialKey {
     }
 }
 
-impl ToString for SpecialKey {
-    fn to_string(&self) -> String {
+impl std::fmt::Display for SpecialKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            SpecialKey::Alt => "Alt".to_string(),
-            SpecialKey::Shift => "Shift".to_string(),
-            SpecialKey::Control => "Control".to_string(),
-            SpecialKey::Super => "Super".to_string(),
-            SpecialKey::Space => "Space".to_string(),
+            SpecialKey::Alt => write!(f, "Alt"),
+            SpecialKey::Shift => write!(f, "Shift"),
+            SpecialKey::Control => write!(f, "Control"),
+            SpecialKey::Super => write!(f, "Super"),
         }
     }
 }
-

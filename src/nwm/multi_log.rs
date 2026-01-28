@@ -1,4 +1,3 @@
-use log;
 use log::Log;
 
 pub struct MultiLog {

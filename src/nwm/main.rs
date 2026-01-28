@@ -35,7 +35,6 @@ struct Nwm {
     suppress_cursor_focus: bool,
 }
 
-
 #[derive(Debug, Copy, Clone, Default)]
 struct Geometry {
     x: i16,
@@ -48,7 +47,7 @@ struct Geometry {
 struct Workspace {
     windows: Vec<WindowId>,
     focused: Option<WindowId>,
-    floating: HashMap<WindowId, Geometry>
+    floating: HashMap<WindowId, Geometry>,
 }
 
 impl Workspace {
@@ -90,7 +89,7 @@ impl Workspace {
     }
 
     pub fn set_focused_to_newest_tiled_window(&mut self) {
-        self.focused = self.windows.last().map(|x| *x);
+        self.focused = self.windows.last().copied()
     }
 
     pub fn get_tiled_window_id(&self, index: usize) -> Option<&WindowId> {
@@ -118,31 +117,31 @@ impl Workspace {
     }
 
     pub fn focus_tiled_left(&mut self) {
-        if let Some(f) = self.focused {
-            if let Some(p) = self.windows.iter().position(|x| *x == f) {
-                let new_pos = p.saturating_sub(1).clamp(0, self.window_count() - 1);
-                self.focused = Some(self.windows[new_pos]);
-            }
+        if let Some(f) = self.focused
+            && let Some(p) = self.windows().iter().position(|x| *x == f)
+        {
+            let new_pos = p.saturating_sub(1).clamp(0, self.window_count() - 1);
+            self.focused = Some(self.windows[new_pos]);
         }
     }
 
     pub fn focus_tiled_right(&mut self) {
-        if let Some(f) = self.focused {
-            if let Some(p) = self.windows.iter().position(|x| *x == f) {
-                let new_pos = p.saturating_add(1).clamp(0, self.window_count() - 1);
-                self.focused = Some(self.windows[new_pos]);
-            }
+        if let Some(f) = self.focused
+            && let Some(p) = self.windows().iter().position(|x| *x == f)
+        {
+            let new_pos = p.saturating_add(1).clamp(0, self.window_count() - 1);
+            self.focused = Some(self.windows[new_pos]);
         }
     }
 
     pub fn tiled_swap_left(&mut self) {
         let f = match self.focused {
             Some(f) => f,
-            None => return
+            None => return,
         };
         let pos = match self.windows.iter().position(|x| *x == f) {
             Some(p) => p,
-            None => return
+            None => return,
         };
         if pos == 0 {
             return;
@@ -154,17 +153,17 @@ impl Workspace {
     pub fn tiled_swap_right(&mut self) {
         let f = match self.focused {
             Some(f) => f,
-            None => return
+            None => return,
         };
         let pos = match self.windows.iter().position(|x| *x == f) {
             Some(p) => p,
-            None => return
+            None => return,
         };
         if pos == self.window_count() - 1 {
             return;
         }
         self.windows.swap(pos, pos + 1);
-        self.focused = self.windows.get(pos - 1).copied();
+        self.focused = self.windows.get(pos.saturating_add(1)).copied();
     }
 
     fn is_floating(&mut self, id: WindowId) -> bool {
@@ -222,7 +221,6 @@ fn keycombo_mask(kc: &lua_cfg::KeyCombo) -> u16 {
             lua_cfg::SpecialKey::Control => ModMask::CONTROL,
             lua_cfg::SpecialKey::Alt => ModMask::M1,
             lua_cfg::SpecialKey::Super => ModMask::M4,
-            _ => ModMask::default(),
         };
     }
     mask
@@ -267,7 +265,8 @@ use x11rb::{
     protocol::{
         Event,
         xproto::{
-            Atom, AtomEnum, ChangeWindowAttributesAux, ConfigureWindowAux, ConnectionExt, EventMask, KeyPressEvent, MapRequestEvent, ModMask, PropMode, UnmapNotifyEvent
+            Atom, AtomEnum, ChangeWindowAttributesAux, ConfigureWindowAux, ConnectionExt,
+            EventMask, KeyPressEvent, MapRequestEvent, ModMask, PropMode, UnmapNotifyEvent,
         },
     },
     wrapper::ConnectionExt as OtherConnExt,
@@ -285,27 +284,69 @@ fn action_to_fn(action: lua_cfg::Action) -> fn(&mut Nwm) {
         lua_cfg::Action::NextWs => Nwm::focus_next_ws,
         lua_cfg::Action::PrevWs => Nwm::focus_prev_ws,
         lua_cfg::Action::ReloadConfig => Nwm::reload_config,
-        lua_cfg::Action::Ws0 => |nwm: &mut Nwm| { nwm.switch_ws(0); },
-        lua_cfg::Action::Ws1 => |nwm: &mut Nwm| { nwm.switch_ws(1); },
-        lua_cfg::Action::Ws2 => |nwm: &mut Nwm| { nwm.switch_ws(2); },
-        lua_cfg::Action::Ws3 => |nwm: &mut Nwm| { nwm.switch_ws(3); },
-        lua_cfg::Action::Ws4 => |nwm: &mut Nwm| { nwm.switch_ws(4); },
-        lua_cfg::Action::Ws5 => |nwm: &mut Nwm| { nwm.switch_ws(5); },
-        lua_cfg::Action::Ws6 => |nwm: &mut Nwm| { nwm.switch_ws(6); },
-        lua_cfg::Action::Ws7 => |nwm: &mut Nwm| { nwm.switch_ws(7); },
-        lua_cfg::Action::Ws8 => |nwm: &mut Nwm| { nwm.switch_ws(8); },
-        lua_cfg::Action::Ws9 => |nwm: &mut Nwm| { nwm.switch_ws(9); },
-        lua_cfg::Action::MoveToWs0 => |nwm: &mut Nwm| { nwm.move_focused_to_ws(0); },
-        lua_cfg::Action::MoveToWs1 => |nwm: &mut Nwm| { nwm.move_focused_to_ws(1); },
-        lua_cfg::Action::MoveToWs2 => |nwm: &mut Nwm| { nwm.move_focused_to_ws(2); },
-        lua_cfg::Action::MoveToWs3 => |nwm: &mut Nwm| { nwm.move_focused_to_ws(3); },
-        lua_cfg::Action::MoveToWs4 => |nwm: &mut Nwm| { nwm.move_focused_to_ws(4); },
-        lua_cfg::Action::MoveToWs5 => |nwm: &mut Nwm| { nwm.move_focused_to_ws(5); },
-        lua_cfg::Action::MoveToWs6 => |nwm: &mut Nwm| { nwm.move_focused_to_ws(6); },
-        lua_cfg::Action::MoveToWs7 => |nwm: &mut Nwm| { nwm.move_focused_to_ws(7); },
-        lua_cfg::Action::MoveToWs8 => |nwm: &mut Nwm| { nwm.move_focused_to_ws(8); },
-        lua_cfg::Action::MoveToWs9 => |nwm: &mut Nwm| { nwm.move_focused_to_ws(9); },
-        lua_cfg::Action::Quit => |nwm: &mut Nwm | { nwm.running = false; },
+        lua_cfg::Action::Ws0 => |nwm: &mut Nwm| {
+            nwm.switch_ws(0);
+        },
+        lua_cfg::Action::Ws1 => |nwm: &mut Nwm| {
+            nwm.switch_ws(1);
+        },
+        lua_cfg::Action::Ws2 => |nwm: &mut Nwm| {
+            nwm.switch_ws(2);
+        },
+        lua_cfg::Action::Ws3 => |nwm: &mut Nwm| {
+            nwm.switch_ws(3);
+        },
+        lua_cfg::Action::Ws4 => |nwm: &mut Nwm| {
+            nwm.switch_ws(4);
+        },
+        lua_cfg::Action::Ws5 => |nwm: &mut Nwm| {
+            nwm.switch_ws(5);
+        },
+        lua_cfg::Action::Ws6 => |nwm: &mut Nwm| {
+            nwm.switch_ws(6);
+        },
+        lua_cfg::Action::Ws7 => |nwm: &mut Nwm| {
+            nwm.switch_ws(7);
+        },
+        lua_cfg::Action::Ws8 => |nwm: &mut Nwm| {
+            nwm.switch_ws(8);
+        },
+        lua_cfg::Action::Ws9 => |nwm: &mut Nwm| {
+            nwm.switch_ws(9);
+        },
+        lua_cfg::Action::MoveToWs0 => |nwm: &mut Nwm| {
+            nwm.move_focused_to_ws(0);
+        },
+        lua_cfg::Action::MoveToWs1 => |nwm: &mut Nwm| {
+            nwm.move_focused_to_ws(1);
+        },
+        lua_cfg::Action::MoveToWs2 => |nwm: &mut Nwm| {
+            nwm.move_focused_to_ws(2);
+        },
+        lua_cfg::Action::MoveToWs3 => |nwm: &mut Nwm| {
+            nwm.move_focused_to_ws(3);
+        },
+        lua_cfg::Action::MoveToWs4 => |nwm: &mut Nwm| {
+            nwm.move_focused_to_ws(4);
+        },
+        lua_cfg::Action::MoveToWs5 => |nwm: &mut Nwm| {
+            nwm.move_focused_to_ws(5);
+        },
+        lua_cfg::Action::MoveToWs6 => |nwm: &mut Nwm| {
+            nwm.move_focused_to_ws(6);
+        },
+        lua_cfg::Action::MoveToWs7 => |nwm: &mut Nwm| {
+            nwm.move_focused_to_ws(7);
+        },
+        lua_cfg::Action::MoveToWs8 => |nwm: &mut Nwm| {
+            nwm.move_focused_to_ws(8);
+        },
+        lua_cfg::Action::MoveToWs9 => |nwm: &mut Nwm| {
+            nwm.move_focused_to_ws(9);
+        },
+        lua_cfg::Action::Quit => |nwm: &mut Nwm| {
+            nwm.running = false;
+        },
     }
 }
 
@@ -328,7 +369,6 @@ impl Nwm {
                     lua_cfg::SpecialKey::Shift => ModMask::SHIFT,
                     lua_cfg::SpecialKey::Control => ModMask::CONTROL,
                     lua_cfg::SpecialKey::Super => ModMask::M4,
-                    lua_cfg::SpecialKey::Space => unreachable!(),
                 })
                 .fold(ModMask::default(), |acc, it| acc | it);
 
@@ -450,7 +490,9 @@ impl Nwm {
 
         let window_type_normal_atom = x11_ab.intern_atom(b"_NET_WM_WINDOW_TYPE_NORMAL");
         if window_type_normal_atom.is_none() {
-            warn!("Failed to intern _NET_WM_WINDOW_TYPE_NORMAL, emwh window type support is not present");
+            warn!(
+                "Failed to intern _NET_WM_WINDOW_TYPE_NORMAL, emwh window type support is not present"
+            );
         }
         let strut_partial_atom = x11_ab.intern_atom(b"_NET_WM_STRUT_PARTIAL");
         if strut_partial_atom.is_none() {
@@ -509,7 +551,19 @@ impl Nwm {
         {
             let cx = r.x + r.w / 2;
             let cy = r.y + r.h / 2;
-            self.x11.conn.warp_pointer(x11rb::NONE, self.x11.root_window(), r.x, r.y, r.w as u16, r.h as u16, cx, cy).unwrap();
+            self.x11
+                .conn
+                .warp_pointer(
+                    x11rb::NONE,
+                    self.x11.root_window(),
+                    r.x,
+                    r.y,
+                    r.w as u16,
+                    r.h as u16,
+                    cx,
+                    cy,
+                )
+                .unwrap();
         }
 
         self.set_focus(id);
@@ -644,11 +698,11 @@ impl Nwm {
                         continue;
                     }
                     let spa = self.strut_partial_atom.unwrap();
-                    if e.atom == spa {
-                        if let Some(strut) = self.get_strut_partial(e.window, spa) {
-                            self.struts.insert(e.window, Strut::from(strut));
-                            self.layout();
-                        }
+                    if e.atom == spa
+                        && let Some(strut) = self.get_strut_partial(e.window, spa)
+                    {
+                        self.struts.insert(e.window, Strut::from(strut));
+                        self.layout();
                     }
                 }
                 Event::DestroyNotify(e) => {
@@ -668,28 +722,22 @@ impl Nwm {
         let rects = self.floating_window_rects();
 
         for (id, r) in rects.iter() {
-            if 
-                self.last_x > r.x && self.last_x < r.x + r.w &&
-                self.last_y > r.y && self.last_y < r.y + r.h 
+            if self.last_x > r.x
+                && self.last_x < r.x + r.w
+                && self.last_y > r.y
+                && self.last_y < r.y + r.h
             {
-                self.set_window_border_pixel(
-                    *id,
-                    self.inactive_border_color,
-                );
+                self.set_window_border_pixel(*id, self.inactive_border_color);
                 self.curr_ws_mut().set_focused_id(*id);
                 self.set_focus(*id);
                 return;
             }
         }
 
-
         let rects = self.tiled_window_rects();
         for (i, r) in rects.iter() {
             if self.last_x > r.x && self.last_x < r.x + r.w {
-                self.set_window_border_pixel(
-                    *i,
-                    self.inactive_border_color,
-                );
+                self.set_window_border_pixel(*i, self.inactive_border_color);
                 self.curr_ws_mut().set_focused_id(*i);
                 self.set_focus(*i);
                 return;
@@ -787,7 +835,10 @@ impl Nwm {
             let h = sh as i16 - gap * 2;
 
             if w > 0 && h > 0 {
-                rs.push((*self.curr_ws().get_tiled_window_id(i as usize).unwrap(), Rect { x, y, w, h }));
+                rs.push((
+                    *self.curr_ws().get_tiled_window_id(i as usize).unwrap(),
+                    Rect { x, y, w, h },
+                ));
             }
         }
 
@@ -805,46 +856,44 @@ impl Nwm {
     fn window_is_dock(&self, w: WindowId) -> bool {
         if let Some(wta) = self.window_type_atom
             && let Some(wtda) = self.window_type_dock_atom
+            && let Some(types) = self.get_window_type(w, wta)
+            && types.contains(&wtda)
         {
-            if let Some(types) = self.get_window_type(w, wta) {
-                if types.contains(&wtda) {
-                    return true;
-                }
-            }
+            return true;
         }
-        return false;
+        false
     }
 
     fn window_is_normal(&self, w: WindowId) -> bool {
         if let Some(wta) = self.window_type_atom
             && let Some(wtna) = self.window_type_normal_atom
+            && let Some(types) = self.get_window_type(w, wta)
+            && types.contains(&wtna)
         {
-            if let Some(types) = self.get_window_type(w, wta) {
-                if types.contains(&wtna) {
-                    return true;
-                }
-            }
+            return true;
         }
-        return false;
+        false
     }
 
     fn add_window(&mut self, event: MapRequestEvent) {
         self.x11.map_window(event.window).unwrap();
-        if let Some(spa) = self.strut_partial_atom {
-            if let Some(strut) = self.get_strut_partial(event.window, spa) {
-                self.struts.insert(event.window, Strut::from(strut));
-                self.layout();
-            }
+        if let Some(spa) = self.strut_partial_atom
+            && let Some(strut) = self.get_strut_partial(event.window, spa)
+        {
+            self.struts.insert(event.window, Strut::from(strut));
+            self.layout();
         }
         if self.window_is_dock(event.window) {
             return;
         }
         if self.window_is_normal(event.window) {
-            self.x11.conn.change_window_attributes(
-                event.window,
-                &ChangeWindowAttributesAux::new()
-                    .event_mask(EventMask::ENTER_WINDOW),
-            ).unwrap();
+            self.x11
+                .conn
+                .change_window_attributes(
+                    event.window,
+                    &ChangeWindowAttributesAux::new().event_mask(EventMask::ENTER_WINDOW),
+                )
+                .unwrap();
             self.set_window_border_width(event.window, self.border_width);
             self.set_window_border_pixel(event.window, self.inactive_border_color);
             self.curr_ws_mut().push_window(event.window);
@@ -852,25 +901,43 @@ impl Nwm {
             self.layout();
             self.x11.focus_window(event.window);
         } else {
-                    self.x11.conn.change_window_attributes(
-                event.window,
-                &ChangeWindowAttributesAux::new()
-                    .event_mask(EventMask::ENTER_WINDOW),
-            ).unwrap();
-            let (w, h) = x11rb::properties::WmSizeHints::get_normal_hints(&self.x11.conn, event.window)
-                .ok()
-                .and_then(|c| c.reply().ok())
-                .and_then(|h| h)
-                .and_then(|h| h.min_size)
-                .or_else(|| {
-                    self.x11.conn.get_geometry(event.window).ok()
-                        .and_then(|c| c.reply().ok())
-                        .map(|g| (g.width as i32, g.height as i32))
-                })
-                .unwrap_or((200, 150));
+            self.x11
+                .conn
+                .change_window_attributes(
+                    event.window,
+                    &ChangeWindowAttributesAux::new().event_mask(EventMask::ENTER_WINDOW),
+                )
+                .unwrap();
+            let (w, h) =
+                x11rb::properties::WmSizeHints::get_normal_hints(&self.x11.conn, event.window)
+                    .ok()
+                    .and_then(|c| c.reply().ok())
+                    .and_then(|h| h)
+                    .and_then(|h| h.min_size)
+                    .or_else(|| {
+                        self.x11
+                            .conn
+                            .get_geometry(event.window)
+                            .ok()
+                            .and_then(|c| c.reply().ok())
+                            .map(|g| (g.width as i32, g.height as i32))
+                    })
+                    .unwrap_or((200, 150));
             let (sw, sh) = self.x11.screen_size();
-            let (x, y) = ((sw / 2) as i16 - (w / 2) as i16, (sh / 2) as i16 - (h / 2) as i16);
-            self.curr_ws_mut().push_float_window(event.window, Geometry { x, y, w: w as i16, h: h as i16 });    self.set_focus(event.window);
+            let (x, y) = (
+                (sw / 2) as i16 - (w / 2) as i16,
+                (sh / 2) as i16 - (h / 2) as i16,
+            );
+            self.curr_ws_mut().push_float_window(
+                event.window,
+                Geometry {
+                    x,
+                    y,
+                    w: w as i16,
+                    h: h as i16,
+                },
+            );
+            self.set_focus(event.window);
             self.set_window_border_width(event.window, self.border_width);
             self.set_window_border_pixel(event.window, self.inactive_border_color);
 
@@ -951,27 +1018,26 @@ impl Nwm {
         for (w, r) in rects.iter() {
             if self.window_is_dock(*w)
                 && let Some(spa) = self.strut_partial_atom
+                && let Some(strut) = self.get_strut_partial(*w, spa)
             {
-                if let Some(strut) = self.get_strut_partial(*w, spa) {
-                    self.struts.insert(
-                        *w,
-                        Strut {
-                            left: strut[0],
-                            right: strut[1],
-                            top: strut[2],
-                            bottom: strut[3],
-                            left_start_y: strut[4],
-                            left_end_y: strut[5],
-                            right_start_y: strut[6],
-                            right_end_y: strut[7],
-                            top_start_x: strut[8],
-                            top_end_x: strut[9],
-                            bottom_start_x: strut[10],
-                            bottom_end_x: strut[11],
-                        },
-                    );
-                    continue;
-                }
+                self.struts.insert(
+                    *w,
+                    Strut {
+                        left: strut[0],
+                        right: strut[1],
+                        top: strut[2],
+                        bottom: strut[3],
+                        left_start_y: strut[4],
+                        left_end_y: strut[5],
+                        right_start_y: strut[6],
+                        right_end_y: strut[7],
+                        top_start_x: strut[8],
+                        top_end_x: strut[9],
+                        bottom_start_x: strut[10],
+                        bottom_end_x: strut[11],
+                    },
+                );
+                continue;
             }
             self.x11.move_window(*w, r.x, r.y).unwrap();
             self.x11.resize_window(*w, r.w as u32, r.h as u32).unwrap();
