@@ -264,7 +264,6 @@ struct Reserve {
 }
 
 use x11rb::{
-    connection::Connection,
     protocol::{
         Event,
         xproto::{
@@ -273,14 +272,6 @@ use x11rb::{
     },
     wrapper::ConnectionExt as OtherConnExt,
 };
-
-#[derive(Clone, Copy)]
-enum MasterKey {
-    Super,
-    Shift,
-    Control,
-    Alt,
-}
 
 fn action_to_fn(action: lua_cfg::Action) -> fn(&mut Nwm) {
     match action {

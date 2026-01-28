@@ -434,13 +434,3 @@ impl ToString for SpecialKey {
     }
 }
 
-impl From<crate::MasterKey> for SpecialKey {
-    fn from(value: crate::MasterKey) -> Self {
-        match value {
-            crate::MasterKey::Alt => SpecialKey::Alt,
-            crate::MasterKey::Super => SpecialKey::Super,
-            crate::MasterKey::Shift => SpecialKey::Shift,
-            crate::MasterKey::Control => SpecialKey::Control,
-        }
-    }
-}
