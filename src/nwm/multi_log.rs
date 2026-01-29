@@ -7,7 +7,7 @@ pub struct MultiLog {
 impl MultiLog {
     pub fn init(loggers: Vec<Box<dyn Log>>, level: log::Level) {
         log::set_max_level(level.to_level_filter());
-        log::set_boxed_logger(Box::new(Self { loggers })).unwrap();
+        log::set_boxed_logger(Box::new(Self { loggers })).expect("Thou shall not happen");
     }
 }
 

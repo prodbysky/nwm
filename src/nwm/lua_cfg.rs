@@ -1,9 +1,9 @@
 use log::error;
-use std::sync::{Arc, Mutex};
+use std::{env::home_dir, sync::{Arc, Mutex}};
 
 use mlua::Lua;
 
-pub fn load_config(path: &std::path::Path, reload: bool) -> Result<Config, ()> {
+pub fn load_config(reload: bool) -> Result<Config, ()> {
     let lua = Lua::new();
 
     let nwm_table = lua.create_table().map_err(|e| {
@@ -75,7 +75,10 @@ pub fn load_config(path: &std::path::Path, reload: bool) -> Result<Config, ()> {
         error!("Failed to put table `nwm` in the globals table: {e}");
     })?;
 
-    let code = std::fs::read_to_string(path).map_err(|e| {
+    let mut home_dir = home_dir().unwrap();
+    home_dir.push(".config/nwm/config.lua");
+
+    let code = std::fs::read_to_string(&home_dir).map_err(|e| {
         error!("Failed to read lua config file: {e}");
     })?;
 

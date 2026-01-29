@@ -94,8 +94,8 @@ impl Workspace {
         self.floating.insert(id, geometry);
     }
 
-    pub fn get_geometry(&self, id: WindowId) -> Geometry {
-        *self.floating.get(&id).unwrap()
+    pub fn get_geometry(&self, id: WindowId) -> Option<&Geometry> {
+        self.floating.get(&id)
     }
 
     pub fn focus_tiled_left(&mut self) {

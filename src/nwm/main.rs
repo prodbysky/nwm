@@ -8,7 +8,7 @@ use std::{collections::HashMap, process::Command};
 
 use better_x11rb::WindowId;
 
-use log::{info, warn};
+use log::{info, warn, error};
 
 struct Nwm {
     x11: better_x11rb::X11RB,
@@ -34,7 +34,6 @@ struct Nwm {
     border_width: u8,
     active_border_color: u32,
     inactive_border_color: u32,
-    config_path: std::path::PathBuf,
     suppress_cursor_focus: bool,
 }
 
@@ -240,7 +239,7 @@ impl Nwm {
                 })
                 .fold(ModMask::default(), |acc, it| acc | it);
 
-            x11.grab_key(mask, b.combo.key.into_x11rb()).unwrap();
+            x11.grab_key(mask, b.combo.key.into_x11rb());
 
             binds.push(Bind {
                 action: action_to_fn(b.action),
@@ -262,18 +261,19 @@ impl Nwm {
     fn move_focused_to_ws(&mut self, ws: usize) {
         if let Some(id) = self.curr_ws().get_focused_id() {
             if self.curr_ws_mut().is_floating(id) {
-                let g = self.curr_ws().get_geometry(id);
-                self.workspaces[ws].push_float_window(id, g);
+                if let Some(g) = self.curr_ws().get_geometry(id) {
+                    self.workspaces[ws].push_float_window(id, *g);
+                }
             } else {
                 self.workspaces[ws].push_window(id);
             }
-            self.x11.unmap_window(id).unwrap();
+            self.x11.unmap_window(id);
             self.curr_ws_mut().remove_window(id);
         }
     }
 
     fn reload_config(&mut self) {
-        let conf = match lua_cfg::load_config(&self.config_path, true) {
+        let conf = match lua_cfg::load_config(true) {
             Ok(c) => c,
             Err(e) => {
                 warn!("Failed to reload lua config: {e:?}");
@@ -310,8 +310,7 @@ impl Nwm {
         let file = std::fs::OpenOptions::new()
             .append(true)
             .create(true)
-            .open("/tmp/nwm.log")
-            .unwrap();
+            .open("/tmp/nwm.log").unwrap();
 
         multi_log::MultiLog::init(
             vec![
@@ -324,12 +323,7 @@ impl Nwm {
 
         info!("Succesfully initialized display {} ", display_name);
 
-        let dirs = platform_dirs::AppDirs::new(Some("nwm"), false).unwrap();
-        _ = std::fs::create_dir(&dirs.config_dir);
-        let mut conf_dir = dirs.config_dir.clone();
-        conf_dir.push("config.lua");
-
-        let conf = lua_cfg::load_config(&conf_dir, false).unwrap_or_else(|_| {
+        let conf = lua_cfg::load_config(false).unwrap_or_else(|_| {
             warn!("Failed to load config on startup using barebones default config");
             lua_cfg::Config::default()
         });
@@ -423,7 +417,6 @@ impl Nwm {
             active_border_color: active,
             inactive_border_color: inactive,
             border_width: width,
-            config_path: conf_dir,
             suppress_cursor_focus: false,
         })
     }
@@ -476,10 +469,12 @@ impl Nwm {
         let rep = self
             .x11
             .conn
-            .get_property(false, w, atom, AtomEnum::CARDINAL, 0, 12)
-            .unwrap()
-            .reply()
-            .unwrap();
+            .get_property(false, w, atom, AtomEnum::CARDINAL, 0, 12).map_err(|e| {
+                warn!("Failed to get _NET_WM_STRUT_PARTIAL property: {e}");
+            }).ok()?
+            .reply().map_err(|e| {
+                warn!("Failed to get _NET_WM_STRUT_PARTIAL property reply from the x11 server: {e}");
+            }).ok()?;
 
         let values = rep.value32()?.collect::<Vec<_>>();
 
@@ -507,14 +502,14 @@ impl Nwm {
     }
 
     fn focus_next_ws(&mut self) {
-        self.switch_ws((self.curr_workspace + 1).clamp(0, 10));
+        self.switch_ws((self.curr_workspace + 1).clamp(0, 9));
     }
 
     fn focus_prev_ws(&mut self) {
         if self.curr_workspace == 0 {
             return;
         }
-        self.switch_ws((self.curr_workspace - 1).clamp(0, 10));
+        self.switch_ws((self.curr_workspace - 1).clamp(0, 9));
     }
 
     fn focused(&self) -> Option<WindowId> {
@@ -528,7 +523,7 @@ impl Nwm {
     }
 
     fn close_window(&mut self, id: WindowId) {
-        self.x11.close_window(id).unwrap();
+        self.x11.close_window(id);
         // self.curr_ws_mut().remove_window(id);
     }
 
@@ -543,7 +538,7 @@ impl Nwm {
     fn set_fullscreen(&mut self, id: WindowId) {
         self.curr_ws_mut().set_fullscreen_id(Some(id));
         for w in self.curr_ws().windows().iter().filter(|w_id| **w_id != id) {
-            self.x11.conn.unmap_window(*w).unwrap();
+            _ = self.x11.conn.unmap_window(*w);
         }
         let (sw, sh) = self.x11.screen_size();
         self.x11.move_window(id, 0, 0);
@@ -553,7 +548,7 @@ impl Nwm {
     fn unset_fullscreen(&mut self) {
         if let Some(id) = self.curr_ws().get_fullscreen_id(){
             for w in self.curr_ws().windows().iter().filter(|w_id| **w_id != id) {
-                self.x11.conn.map_window(*w).unwrap();
+                _ = self.x11.conn.map_window(*w);
             }
         }
         self.layout();
@@ -564,7 +559,18 @@ impl Nwm {
         info!("Keybindings were setup");
 
         while self.running {
-            let event = self.x11.next_event().unwrap();
+            let event = match self.x11.next_event() {
+                Ok(e) => e,
+                Err(x11rb::errors::ConnectionError::IoError(e)) => {
+                    error!("Failed to get X11 event due to an IO error, aborting :( : {e}");
+                    self.running = false;
+                    return;
+                },
+                Err(e) => {
+                    error!("Failed to get X11 event due to: {e}");
+                    continue;
+                }
+            };
 
             match event {
                 Event::MapRequest(e) => self.add_window(e),
@@ -676,10 +682,11 @@ impl Nwm {
     }
 
     fn set_window_border_width(&mut self, w: WindowId, width: u8) {
-        self.x11
+        _ = self.x11
             .conn
-            .configure_window(w, &ConfigureWindowAux::new().border_width(width as u32))
-            .unwrap();
+            .configure_window(w, &ConfigureWindowAux::new().border_width(width as u32)).map_err(|e| {
+                warn!("Failed to set windows {w} border width to {width}: {e}");
+            });
     }
 
     fn switch_ws(&mut self, new_ws: usize) {
@@ -690,25 +697,25 @@ impl Nwm {
         let old_ws = self.curr_workspace;
 
         for &w in self.workspaces[old_ws].windows() {
-            self.x11.unmap_window(w).unwrap();
+            self.x11.unmap_window(w);
         }
 
         for w in self.workspaces[old_ws].floating_window_ids() {
-            self.x11.unmap_window(*w).unwrap();
+            self.x11.unmap_window(*w);
         }
 
         self.curr_workspace = new_ws;
 
         for &w in self.workspaces[new_ws].windows() {
-            self.x11.map_window(w).unwrap();
+            self.x11.map_window(w);
         }
 
         for w in self.workspaces[new_ws].floating_window_ids() {
-            self.x11.map_window(*w).unwrap();
+            self.x11.map_window(*w);
         }
 
         if let Some(ada) = self.active_desktop_atom {
-            self.x11
+            _ = self.x11
                 .conn
                 .change_property32(
                     PropMode::REPLACE,
@@ -717,7 +724,9 @@ impl Nwm {
                     AtomEnum::CARDINAL,
                     &[(new_ws) as u32],
                 )
-                .unwrap();
+                .map_err(|e| {
+                    warn!("Failed to set _NET_ACTIVE_DESKTOP: {e}");
+                });
         }
 
         self.layout();
@@ -799,7 +808,7 @@ impl Nwm {
     }
 
     fn add_window(&mut self, event: MapRequestEvent) {
-        self.x11.map_window(event.window).unwrap();
+        self.x11.map_window(event.window);
         if let Some(spa) = self.strut_partial_atom
             && let Some(strut) = self.get_strut_partial(event.window, spa)
         {
@@ -810,13 +819,14 @@ impl Nwm {
             return;
         }
         if self.window_is_normal(event.window) {
-            self.x11
+            _ = self.x11
                 .conn
                 .change_window_attributes(
                     event.window,
                     &ChangeWindowAttributesAux::new().event_mask(EventMask::ENTER_WINDOW),
-                )
-                .unwrap();
+                ).map_err(|e| {
+                    error!("Failed to set tiled window {window} event mask: {e}", window = event.window)
+                });
             self.set_window_border_width(event.window, self.border_width);
             self.set_window_border_pixel(event.window, self.inactive_border_color);
             self.curr_ws_mut().push_window(event.window);
@@ -824,13 +834,14 @@ impl Nwm {
             self.layout();
             self.x11.focus_window(event.window);
         } else {
-            self.x11
+            _ = self.x11
                 .conn
                 .change_window_attributes(
                     event.window,
                     &ChangeWindowAttributesAux::new().event_mask(EventMask::ENTER_WINDOW),
-                )
-                .unwrap();
+                ).map_err(|e| {
+                    error!("Failed to set floating window {window} event mask: {e}", window = event.window)
+                });
             let (w, h) =
                 x11rb::properties::WmSizeHints::get_normal_hints(&self.x11.conn, event.window)
                     .ok()
@@ -962,8 +973,8 @@ impl Nwm {
                 );
                 continue;
             }
-            self.x11.move_window(*w, r.x, r.y).unwrap();
-            self.x11.resize_window(*w, r.w as u32, r.h as u32).unwrap();
+            self.x11.move_window(*w, r.x, r.y);
+            self.x11.resize_window(*w, r.w as u32, r.h as u32);
         }
     }
 
@@ -980,7 +991,15 @@ impl Nwm {
     }
 }
 
-fn main() {
-    let display_name = std::env::var("DISPLAY").unwrap();
-    Nwm::create(&display_name).unwrap().run();
+fn main() -> Result<(), ()>{
+    let display_name = std::env::var("DISPLAY").map_err(|e| {
+        error!("Failed to get $DISPLAY. Aborting: {e}")
+    })?;
+    match Nwm::create(&display_name) {
+        Some(nwm) => nwm.run(),
+        None => {
+            error!("Upsi dupsi, failed to create nwm :(");
+        }
+    }
+    Ok(())
 }

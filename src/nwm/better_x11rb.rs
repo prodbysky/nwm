@@ -3,15 +3,13 @@ use std::collections::HashMap;
 use log::{error, warn};
 
 use x11rb::{
-    connection::Connection,
-    protocol::{
+    connection::Connection, errors::ConnectionError, protocol::{
         Event,
         xproto::{
             Atom, ChangeWindowAttributesAux, ConfigureWindowAux, ConnectionExt, EventMask,
             GrabMode, InputFocus, Keycode, MappingNotifyEvent, ModMask, Screen, StackMode, Time,
         },
-    },
-    rust_connection::RustConnection,
+    }, rust_connection::RustConnection
 };
 
 pub type WindowId = u32;
@@ -153,15 +151,11 @@ impl X11RB {
             .ok()
     }
 
-    pub fn next_event(&mut self) -> Option<Event> {
-        self.conn.flush().unwrap();
+    pub fn next_event(&mut self) -> Result<Event, ConnectionError> {
+        self.conn.flush()?;
         let e = self
             .conn
-            .wait_for_event()
-            .map_err(|e| {
-                warn!("Failed to get the next x11 event: {e}");
-            })
-            .ok()?;
+            .wait_for_event()?;
 
         match e {
             Event::MotionNotify(e) => {
@@ -181,7 +175,7 @@ impl X11RB {
             _ => {}
         };
 
-        Some(e)
+        Ok(e)
     }
 
     pub fn mouse_pos(&self) -> (i16, i16) {
