@@ -22,6 +22,8 @@ struct Nwm {
     window_type_dock_atom: Option<Atom>,
     strut_partial_atom: Option<Atom>,
     active_desktop_atom: Option<Atom>,
+    state_atom: Option<Atom>,
+    fullscreen_state_atom: Option<Atom>,
     struts: HashMap<WindowId, Strut>,
 
     gap: u8,
@@ -48,6 +50,7 @@ struct Workspace {
     windows: Vec<WindowId>,
     focused: Option<WindowId>,
     floating: HashMap<WindowId, Geometry>,
+    full_screened: Option<WindowId>
 }
 
 impl Workspace {
@@ -500,6 +503,20 @@ impl Nwm {
                 "Failed to intern _NET_WM_STRUT_PARTIAL, docks that depend on this won't resize other windows"
             );
         }
+
+        let fullscreen_state_atom = x11_ab.intern_atom(b"_NET_WM_STATE_FULLSCREEN");
+        if fullscreen_state_atom.is_none() {
+            warn!(
+                "Failed to intern _NET_WM_STATE_FULLSCREEN, fullscreen state will not be handled"
+            );
+        }
+
+        let state_atom = x11_ab.intern_atom(b"_NET_WM_STATE");
+        if state_atom.is_none() {
+            warn!(
+                "Failed to intern _NET_WM_STATE, fullscreen state will not be handled"
+            );
+        }
         use x11rb::wrapper::ConnectionExt;
 
         let active_desktop_atom = x11_ab.intern_atom(b"_NET_CURRENT_DESKTOP");
@@ -534,6 +551,8 @@ impl Nwm {
             strut_partial_atom,
             active_desktop_atom,
             window_type_normal_atom,
+            state_atom,
+            fullscreen_state_atom,
             struts: HashMap::new(),
             last_focused: None,
             active_border_color: active,
@@ -651,8 +670,29 @@ impl Nwm {
     fn curr_ws_mut(&mut self) -> &mut Workspace {
         &mut self.workspaces[self.curr_workspace]
     }
+
     fn curr_ws(&self) -> &Workspace {
         &self.workspaces[self.curr_workspace]
+    }
+
+    fn set_fullscreen(&mut self, id: WindowId) {
+        self.curr_ws_mut().full_screened = Some(id);
+        for w in self.curr_ws().windows().iter().filter(|w_id| **w_id != id) {
+            self.x11.conn.unmap_window(*w).unwrap();
+        }
+        let (sw, sh) = self.x11.screen_size();
+        self.x11.move_window(id, 0, 0);
+        self.x11.resize_window(id, sw as u32, sh as u32);
+    }
+
+    fn unset_fullscreen(&mut self) {
+        if let Some(id) = self.curr_ws().full_screened {
+            for w in self.curr_ws().windows().iter().filter(|w_id| **w_id != id) {
+                self.x11.conn.map_window(*w).unwrap();
+            }
+        }
+        self.layout();
+        self.curr_ws_mut().full_screened = None;
     }
 
     pub fn run(mut self) {
@@ -693,12 +733,30 @@ impl Nwm {
                 Event::KeyRelease(_) => {}
                 Event::MappingNotify(_) => {}
                 Event::ConfigureRequest(_) => self.layout(),
-                Event::PropertyNotify(e) => {
-                    if self.strut_partial_atom.is_none() {
-                        continue;
+                Event::ClientMessage(e) => {
+                    if let Some(sa) = self.state_atom && let Some(fsa) = self.fullscreen_state_atom {
+                        if e.type_ == sa {
+                            let (action, first, second) = (e.data.as_data32()[0], e.data.as_data32()[1], e.data.as_data32()[2]);
+                            if first == fsa || second == fsa {
+                                match action {
+                                    0 => {
+                                        self.unset_fullscreen();
+                                    }
+                                    1 => {
+                                        self.set_fullscreen(e.window);
+                                    }
+                                    2 => {
+                                        dbg!("toggle_fs");
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
                     }
-                    let spa = self.strut_partial_atom.unwrap();
-                    if e.atom == spa
+                }
+                Event::PropertyNotify(e) => {
+                    if let Some(spa) = self.strut_partial_atom
+                        && e.atom == spa
                         && let Some(strut) = self.get_strut_partial(e.window, spa)
                     {
                         self.struts.insert(e.window, Strut::from(strut));

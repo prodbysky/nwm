@@ -47,13 +47,18 @@ impl X11RB {
         )
         .map_err(|e| error!("Failed to set window event mask: {e}"))
         .ok()?;
-        x11rb::protocol::randr::query_version(&conn, 1, 5).unwrap().reply().unwrap();
+        x11rb::protocol::randr::query_version(&conn, 1, 5)
+            .unwrap()
+            .reply()
+            .unwrap();
 
         x11rb::protocol::randr::select_input(
             &conn,
             screen.root,
             x11rb::protocol::randr::NotifyMask::SCREEN_CHANGE,
-        ).ok().unwrap();
+        )
+        .ok()
+        .unwrap();
 
         let mut wm = Self {
             screen: screen.clone(),
@@ -164,7 +169,6 @@ impl X11RB {
                 self.pointer_pos.1 = e.root_y;
             }
             Event::RandrScreenChangeNotify(e) => {
-                println!("fuck.");
                 self.screen.width_in_pixels = e.width;
                 self.screen.height_in_pixels = e.height;
                 self.screen.width_in_millimeters = e.mwidth;
