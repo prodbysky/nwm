@@ -2,6 +2,7 @@ mod better_x11rb;
 mod lua_cfg;
 mod multi_log;
 mod nw_log_connection;
+mod workspace;
 
 use std::{collections::HashMap, process::Command};
 
@@ -11,7 +12,7 @@ use log::{info, warn};
 
 struct Nwm {
     x11: better_x11rb::X11RB,
-    workspaces: [Workspace; 10],
+    workspaces: [workspace::Workspace; 10],
     curr_workspace: usize,
     last_focused: Option<WindowId>,
     running: bool,
@@ -37,142 +38,6 @@ struct Nwm {
     suppress_cursor_focus: bool,
 }
 
-#[derive(Debug, Copy, Clone, Default)]
-struct Geometry {
-    x: i16,
-    y: i16,
-    w: i16,
-    h: i16,
-}
-
-#[derive(Clone, Default)]
-struct Workspace {
-    windows: Vec<WindowId>,
-    focused: Option<WindowId>,
-    floating: HashMap<WindowId, Geometry>,
-    full_screened: Option<WindowId>
-}
-
-impl Workspace {
-    pub fn windows(&self) -> &[WindowId] {
-        &self.windows
-    }
-
-    pub fn windows_mut(&mut self) -> &mut Vec<WindowId> {
-        &mut self.windows
-    }
-
-    pub fn window_count(&self) -> usize {
-        self.windows.len()
-    }
-
-    pub fn remove_window(&mut self, id: WindowId) {
-        let was_focused = self.focused == Some(id);
-        if let Some(p) = self.windows().iter().position(|i| id == *i) {
-            self.windows.remove(p);
-        } else {
-            self.floating.remove(&id);
-        }
-        if was_focused {
-            self.focused = self
-                .windows
-                .last()
-                .copied()
-                .or_else(|| self.floating.keys().next().copied());
-        }
-        if let Some(p) = self.windows.iter().position(|i| id == *i) {
-            self.windows.remove(p);
-            return;
-        }
-        self.floating.remove(&id);
-    }
-
-    pub fn set_focused_id(&mut self, id: WindowId) {
-        self.focused = Some(id);
-    }
-
-    pub fn set_focused_to_newest_tiled_window(&mut self) {
-        self.focused = self.windows.last().copied()
-    }
-
-    pub fn get_tiled_window_id(&self, index: usize) -> Option<&WindowId> {
-        self.windows.get(index)
-    }
-
-    pub fn get_focused_id(&self) -> Option<WindowId> {
-        self.focused
-    }
-
-    pub fn empty(&self) -> bool {
-        self.windows.is_empty() && self.floating.is_empty()
-    }
-
-    pub fn push_window(&mut self, id: WindowId) {
-        self.windows.push(id);
-    }
-
-    pub fn push_float_window(&mut self, id: WindowId, geometry: Geometry) {
-        self.floating.insert(id, geometry);
-    }
-
-    pub fn get_geometry(&self, id: WindowId) -> Geometry {
-        *self.floating.get(&id).unwrap()
-    }
-
-    pub fn focus_tiled_left(&mut self) {
-        if let Some(f) = self.focused
-            && let Some(p) = self.windows().iter().position(|x| *x == f)
-        {
-            let new_pos = p.saturating_sub(1).clamp(0, self.window_count() - 1);
-            self.focused = Some(self.windows[new_pos]);
-        }
-    }
-
-    pub fn focus_tiled_right(&mut self) {
-        if let Some(f) = self.focused
-            && let Some(p) = self.windows().iter().position(|x| *x == f)
-        {
-            let new_pos = p.saturating_add(1).clamp(0, self.window_count() - 1);
-            self.focused = Some(self.windows[new_pos]);
-        }
-    }
-
-    pub fn tiled_swap_left(&mut self) {
-        let f = match self.focused {
-            Some(f) => f,
-            None => return,
-        };
-        let pos = match self.windows.iter().position(|x| *x == f) {
-            Some(p) => p,
-            None => return,
-        };
-        if pos == 0 {
-            return;
-        }
-        self.windows.swap(pos, pos - 1);
-        self.focused = self.windows.get(pos - 1).copied();
-    }
-
-    pub fn tiled_swap_right(&mut self) {
-        let f = match self.focused {
-            Some(f) => f,
-            None => return,
-        };
-        let pos = match self.windows.iter().position(|x| *x == f) {
-            Some(p) => p,
-            None => return,
-        };
-        if pos == self.window_count() - 1 {
-            return;
-        }
-        self.windows.swap(pos, pos + 1);
-        self.focused = self.windows.get(pos.saturating_add(1)).copied();
-    }
-
-    fn is_floating(&mut self, id: WindowId) -> bool {
-        self.floating.contains_key(&id)
-    }
-}
 
 #[allow(dead_code)]
 struct Strut {
@@ -433,7 +298,7 @@ impl Nwm {
             for w in ws.windows() {
                 self.set_window_border_width(*w, self.border_width);
             }
-            for w in ws.floating.keys() {
+            for w in ws.floating_window_ids() {
                 self.set_window_border_width(*w, self.border_width);
             }
         }
@@ -653,7 +518,7 @@ impl Nwm {
     }
 
     fn focused(&self) -> Option<WindowId> {
-        self.workspaces[self.curr_workspace].focused
+        self.workspaces[self.curr_workspace].get_focused_id()
     }
 
     fn close_focused(&mut self) {
@@ -667,16 +532,16 @@ impl Nwm {
         // self.curr_ws_mut().remove_window(id);
     }
 
-    fn curr_ws_mut(&mut self) -> &mut Workspace {
+    fn curr_ws_mut(&mut self) -> &mut workspace::Workspace {
         &mut self.workspaces[self.curr_workspace]
     }
 
-    fn curr_ws(&self) -> &Workspace {
+    fn curr_ws(&self) -> &workspace::Workspace {
         &self.workspaces[self.curr_workspace]
     }
 
     fn set_fullscreen(&mut self, id: WindowId) {
-        self.curr_ws_mut().full_screened = Some(id);
+        self.curr_ws_mut().set_fullscreen_id(Some(id));
         for w in self.curr_ws().windows().iter().filter(|w_id| **w_id != id) {
             self.x11.conn.unmap_window(*w).unwrap();
         }
@@ -686,13 +551,13 @@ impl Nwm {
     }
 
     fn unset_fullscreen(&mut self) {
-        if let Some(id) = self.curr_ws().full_screened {
+        if let Some(id) = self.curr_ws().get_fullscreen_id(){
             for w in self.curr_ws().windows().iter().filter(|w_id| **w_id != id) {
                 self.x11.conn.map_window(*w).unwrap();
             }
         }
         self.layout();
-        self.curr_ws_mut().full_screened = None;
+        self.curr_ws_mut().set_fullscreen_id(None);
     }
 
     pub fn run(mut self) {
@@ -828,7 +693,7 @@ impl Nwm {
             self.x11.unmap_window(w).unwrap();
         }
 
-        for w in self.workspaces[old_ws].floating.keys() {
+        for w in self.workspaces[old_ws].floating_window_ids() {
             self.x11.unmap_window(*w).unwrap();
         }
 
@@ -838,7 +703,7 @@ impl Nwm {
             self.x11.map_window(w).unwrap();
         }
 
-        for w in self.workspaces[new_ws].floating.keys() {
+        for w in self.workspaces[new_ws].floating_window_ids() {
             self.x11.map_window(*w).unwrap();
         }
 
@@ -905,7 +770,7 @@ impl Nwm {
 
     fn floating_window_rects(&self) -> Vec<(WindowId, Rect)> {
         let mut vs = vec![];
-        for (id, &Geometry { x, y, w, h }) in self.curr_ws().floating.iter() {
+        for (id, &workspace::Geometry { x, y, w, h }) in self.curr_ws().floating_windows() {
             vs.push((*id, Rect { x, y, w, h }));
         }
         vs
@@ -988,7 +853,7 @@ impl Nwm {
             );
             self.curr_ws_mut().push_float_window(
                 event.window,
-                Geometry {
+                workspace::Geometry {
                     x,
                     y,
                     w: w as i16,
@@ -1016,7 +881,7 @@ impl Nwm {
         self.suppress_cursor_focus = true;
         self.curr_ws_mut().tiled_swap_left();
         self.layout();
-        if let Some(f) = self.curr_ws().focused {
+        if let Some(f) = self.curr_ws().get_focused_id() {
             self.refocus_and_warp(f);
         }
         self.suppress_cursor_focus = false;
@@ -1026,7 +891,7 @@ impl Nwm {
         self.suppress_cursor_focus = true;
         self.curr_ws_mut().tiled_swap_right();
         self.layout();
-        if let Some(f) = self.curr_ws().focused {
+        if let Some(f) = self.curr_ws().get_focused_id() {
             self.refocus_and_warp(f);
         }
         self.suppress_cursor_focus = false;
@@ -1110,7 +975,7 @@ impl Nwm {
         self.set_window_border_pixel(id, self.active_border_color);
         let _ = self.x11.focus_window(id);
 
-        self.curr_ws_mut().focused = Some(id);
+        self.curr_ws_mut().set_focused_id(id);
         self.last_focused = Some(id);
     }
 }
