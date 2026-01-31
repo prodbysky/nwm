@@ -7,10 +7,15 @@ nwm.set.border_active_color("#ffdd33")
 nwm.set.border_inactive_color("#181818")
 
 nwm.bind("h", nwm.action.focus.left)
+nwm.bind("j", nwm.action.focus.down)
+nwm.bind("k", nwm.action.focus.up)
 nwm.bind("l", nwm.action.focus.right)
 
 nwm.bind("Shift-h", nwm.action.move.left)
+nwm.bind("Shift-j", nwm.action.move.down)
+nwm.bind("Shift-k", nwm.action.move.up)
 nwm.bind("Shift-l", nwm.action.move.right)
+
 nwm.bind("Shift-q", nwm.action.quit)
 
 nwm.bind("Space", nwm.action.launcher)
@@ -42,10 +47,12 @@ nwm.bind("Shift-8", nwm.action.move_to_ws7)
 nwm.bind("Shift-9", nwm.action.move_to_ws8)
 nwm.bind("Shift-0", nwm.action.move_to_ws9)
 
+nwm.bind("Control-n", nwm.action.next_layout)
+nwm.bind("Control-m", nwm.action.prev_layout)
+
 nwm.bind("r", nwm.action.reload)
 
 if nwm.first_boot then
     os.execute("pipewire &")
     os.execute("feh --bg-fill  ~/Wallpapers/wall.png &")
 end
-

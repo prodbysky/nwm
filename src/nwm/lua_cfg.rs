@@ -1,5 +1,8 @@
 use log::error;
-use std::{env::home_dir, sync::{Arc, Mutex}};
+use std::{
+    env::home_dir,
+    sync::{Arc, Mutex},
+};
 
 use mlua::Lua;
 
@@ -175,9 +178,15 @@ fn create_action_data(lua: &Lua) -> mlua::Result<mlua::Table> {
     focus_table.set("left", Action::FocusLeft)?;
     focus_table.set("right", Action::FocusRight)?;
 
+    focus_table.set("up", Action::FocusUp)?;
+    focus_table.set("down", Action::FocusDown)?;
+
     let move_table = lua.create_table()?;
     move_table.set("left", Action::MoveLeft)?;
     move_table.set("right", Action::MoveRight)?;
+
+    move_table.set("up", Action::MoveUp)?;
+    move_table.set("down", Action::MoveDown)?;
 
     action_table.set("focus", focus_table)?;
     action_table.set("move", move_table)?;
@@ -211,6 +220,9 @@ fn create_action_data(lua: &Lua) -> mlua::Result<mlua::Table> {
     action_table.set("move_to_ws7", Action::MoveToWs7)?;
     action_table.set("move_to_ws8", Action::MoveToWs8)?;
     action_table.set("move_to_ws9", Action::MoveToWs9)?;
+
+    action_table.set("next_layout", Action::NextLayout)?;
+    action_table.set("prev_layout", Action::PrevLayout)?;
 
     Ok(action_table)
 }
@@ -390,8 +402,12 @@ pub enum Action {
     #[default]
     FocusLeft,
     FocusRight,
+    FocusUp,
+    FocusDown,
     MoveLeft,
     MoveRight,
+    MoveUp,
+    MoveDown,
     Launcher,
     Terminal,
     CloseWindow,
@@ -419,6 +435,8 @@ pub enum Action {
     MoveToWs7,
     MoveToWs8,
     MoveToWs9,
+    NextLayout,
+    PrevLayout,
 }
 
 impl mlua::UserData for Action {}

@@ -6,7 +6,7 @@ NWM (not xsoders [nwm](https://github.com/xsoder/nwm)) is a [tiling window manag
 for [x11](https://en.wikipedia.org/wiki/X_Window_System), written in Rust (btw).
 
 ## Features:
- - Only horizontally window tiling with configurable gaps
+ - Multiple layout modes: Horizontal, vertical, master
  - 10 workspaces
  - Partial EWMH support - support for docks (polybar, ...)
  - Configurable (via lua)
