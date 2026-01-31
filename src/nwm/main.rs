@@ -225,7 +225,7 @@ fn action_to_fn(action: lua_cfg::Action) -> fn(&mut Nwm) {
             nwm.running = false;
         },
         lua_cfg::Action::NextLayout => |nwm: &mut Nwm| {
-            nwm.curr_layout = (nwm.curr_layout + 1) % 2;
+            nwm.curr_layout = (nwm.curr_layout + 1) % 3;
             nwm.layout();
         },
         lua_cfg::Action::PrevLayout => |nwm: &mut Nwm| {
@@ -415,6 +415,7 @@ impl Nwm {
         let layouts: Vec<Box<dyn layout::Layout>> = vec![
             Box::new(layout::HorizontalTiling),
             Box::new(layout::VerticalTiling),
+            Box::new(layout::MasterLayout),
         ];
 
         Some(Self {
@@ -883,7 +884,7 @@ impl Nwm {
         self.layout();
     }
 
-    fn make_layout_ctx(&self) -> layout::LayoutContext {
+    fn make_layout_ctx(&self) -> layout::LayoutContext<'_> {
         layout::LayoutContext {
             windows: self.curr_ws().windows(),
             screen_width: self.x11.screen_size().0,
