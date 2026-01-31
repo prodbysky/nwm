@@ -98,56 +98,6 @@ impl Workspace {
         self.floating.get(&id)
     }
 
-    pub fn focus_tiled_left(&mut self) {
-        if let Some(f) = self.focused
-            && let Some(p) = self.windows().iter().position(|x| *x == f)
-        {
-            let new_pos = p.saturating_sub(1).clamp(0, self.window_count() - 1);
-            self.focused = Some(self.windows[new_pos]);
-        }
-    }
-
-    pub fn focus_tiled_right(&mut self) {
-        if let Some(f) = self.focused
-            && let Some(p) = self.windows().iter().position(|x| *x == f)
-        {
-            let new_pos = p.saturating_add(1).clamp(0, self.window_count() - 1);
-            self.focused = Some(self.windows[new_pos]);
-        }
-    }
-
-    pub fn tiled_swap_left(&mut self) {
-        let f = match self.focused {
-            Some(f) => f,
-            None => return,
-        };
-        let pos = match self.windows.iter().position(|x| *x == f) {
-            Some(p) => p,
-            None => return,
-        };
-        if pos == 0 {
-            return;
-        }
-        self.windows.swap(pos, pos - 1);
-        self.focused = self.windows.get(pos - 1).copied();
-    }
-
-    pub fn tiled_swap_right(&mut self) {
-        let f = match self.focused {
-            Some(f) => f,
-            None => return,
-        };
-        let pos = match self.windows.iter().position(|x| *x == f) {
-            Some(p) => p,
-            None => return,
-        };
-        if pos == self.window_count() - 1 {
-            return;
-        }
-        self.windows.swap(pos, pos + 1);
-        self.focused = self.windows.get(pos.saturating_add(1)).copied();
-    }
-
     pub fn is_floating(&mut self, id: WindowId) -> bool {
         self.floating.contains_key(&id)
     }

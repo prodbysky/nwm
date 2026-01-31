@@ -3,6 +3,7 @@ mod lua_cfg;
 mod multi_log;
 mod nw_log_connection;
 mod workspace;
+mod layout;
 
 use std::{collections::HashMap, process::Command};
 
@@ -35,8 +36,9 @@ struct Nwm {
     active_border_color: u32,
     inactive_border_color: u32,
     suppress_cursor_focus: bool,
+    layouts: Vec<Box<dyn layout::Layout>>,
+    curr_layout: usize
 }
-
 
 #[allow(dead_code)]
 struct Strut {
@@ -394,6 +396,10 @@ impl Nwm {
                 });
         }
 
+        let layouts: Vec<Box<dyn layout::Layout>> = vec![
+            Box::new(layout::HorizontalTiling)
+        ];
+
         Some(Self {
             x11: x11_ab,
             workspaces: Default::default(),
@@ -418,6 +424,8 @@ impl Nwm {
             inactive_border_color: inactive,
             border_width: width,
             suppress_cursor_focus: false,
+            layouts,
+            curr_layout: 0
         })
     }
     fn refocus_and_warp(&mut self, id: WindowId) {
@@ -734,47 +742,17 @@ impl Nwm {
     }
 
     fn tiled_window_rects(&self) -> Vec<(WindowId, Rect)> {
-        if self.curr_ws().empty() {
-            return vec![];
-        }
-
-        let mut rs = vec![];
-        let (mut sw, mut sh) = self.x11.screen_size();
-
-        let reserved = self.get_reserved_space();
-
-        let offset = (reserved.x0, reserved.y0);
-
-        sw -= (reserved.x0 + reserved.x1) as u16;
-        sh -= (reserved.y0 + reserved.y1) as u16;
-
-        let n = (self.curr_ws().window_count()) as i16;
-        if n == 0 {
-            return rs;
-        }
-
-        let gap = self.gap as i16;
-        let half_gap = gap / 2;
-
-        let usable_w = sw as i16 - gap * 2;
-        let slot_w = usable_w / n;
-
-        for i in 0..n {
-            let x = gap + i * slot_w + half_gap + offset.0 as i16;
-            let y = gap + offset.1 as i16;
-
-            let w = slot_w - half_gap * 2;
-            let h = sh as i16 - gap * 2;
-
-            if w > 0 && h > 0 {
-                rs.push((
-                    *self.curr_ws().get_tiled_window_id(i as usize).unwrap(),
-                    Rect { x, y, w, h },
-                ));
-            }
-        }
-
-        rs
+        let layout = &self.layouts[self.curr_layout];
+        
+        let ctx = layout::LayoutContext {
+            windows: self.curr_ws().windows(),
+            screen_width: self.x11.screen_size().0,
+            screen_height: self.x11.screen_size().1,
+            gap: self.gap,
+            reserved: self.get_reserved_space(),
+        };
+        
+        layout.arrange(&ctx)
     }
 
     fn floating_window_rects(&self) -> Vec<(WindowId, Rect)> {
@@ -888,22 +866,42 @@ impl Nwm {
         self.layout();
     }
 
+    fn make_layout_ctx(&self) -> layout::LayoutContext {
+        layout::LayoutContext {
+            windows: self.curr_ws().windows(),
+            screen_width: self.x11.screen_size().0,
+            screen_height: self.x11.screen_size().1,
+            gap: self.gap,
+            reserved: self.get_reserved_space(),
+        }
+    }
+
     fn swap_left(&mut self) {
         self.suppress_cursor_focus = true;
-        self.curr_ws_mut().tiled_swap_left();
-        self.layout();
-        if let Some(f) = self.curr_ws().get_focused_id() {
-            self.refocus_and_warp(f);
+        if let Some(current) = self.curr_ws().get_focused_id() {
+            let layout = &self.layouts[self.curr_layout];
+            let ctx = self.make_layout_ctx();
+            
+            if let Some(new_order) = layout.swap(&ctx, current, layout::Direction::Left) {
+                *self.curr_ws_mut().windows_mut() = new_order;
+                self.layout();
+                self.refocus_and_warp(current);
+            }
         }
         self.suppress_cursor_focus = false;
     }
 
     fn swap_right(&mut self) {
         self.suppress_cursor_focus = true;
-        self.curr_ws_mut().tiled_swap_right();
-        self.layout();
-        if let Some(f) = self.curr_ws().get_focused_id() {
-            self.refocus_and_warp(f);
+        if let Some(current) = self.curr_ws().get_focused_id() {
+            let layout = &self.layouts[self.curr_layout];
+            let ctx = self.make_layout_ctx();
+            
+            if let Some(new_order) = layout.swap(&ctx, current, layout::Direction::Right) {
+                *self.curr_ws_mut().windows_mut() = new_order;
+                self.layout();
+                self.refocus_and_warp(current);
+            }
         }
         self.suppress_cursor_focus = false;
     }
@@ -929,16 +927,26 @@ impl Nwm {
     }
 
     fn focus_left(&mut self) {
-        self.curr_ws_mut().focus_tiled_left();
-        if let Some(id) = self.curr_ws().get_focused_id() {
-            self.set_focus(id);
+        if let Some(f_id) = self.curr_ws().get_focused_id() {
+            let layout = &self.layouts[self.curr_layout];
+            let ctx = self.make_layout_ctx();
+
+            if let Some(next) = layout.focus_next(&ctx, f_id, layout::Direction::Left) {
+                self.curr_ws_mut().set_focused_id(next);
+                self.set_focus(next);
+            }
         }
     }
 
     fn focus_right(&mut self) {
-        self.curr_ws_mut().focus_tiled_right();
-        if let Some(id) = self.curr_ws().get_focused_id() {
-            self.set_focus(id);
+        if let Some(f_id) = self.curr_ws().get_focused_id() {
+            let layout = &self.layouts[self.curr_layout];
+            let ctx = self.make_layout_ctx();
+
+            if let Some(next) = layout.focus_next(&ctx, f_id, layout::Direction::Right) {
+                self.curr_ws_mut().set_focused_id(next);
+                self.set_focus(next);
+            }
         }
     }
 
