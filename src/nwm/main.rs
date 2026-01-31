@@ -147,6 +147,14 @@ fn action_to_fn(action: lua_cfg::Action) -> fn(&mut Nwm) {
         lua_cfg::Action::FocusRight => Nwm::focus_right,
         lua_cfg::Action::MoveLeft => Nwm::swap_left,
         lua_cfg::Action::MoveRight => Nwm::swap_right,
+
+        lua_cfg::Action::FocusUp => Nwm::focus_up,
+        lua_cfg::Action::FocusDown => Nwm::focus_down,
+
+        lua_cfg::Action::MoveUp => Nwm::swap_up,
+        lua_cfg::Action::MoveDown => Nwm::swap_down,
+
+
         lua_cfg::Action::Launcher => Nwm::launcher,
         lua_cfg::Action::Terminal => Nwm::terminal,
         lua_cfg::Action::CloseWindow => Nwm::close_focused,
@@ -915,6 +923,36 @@ impl Nwm {
         self.suppress_cursor_focus = false;
     }
 
+    fn swap_up(&mut self) {
+        self.suppress_cursor_focus = true;
+        if let Some(current) = self.curr_ws().get_focused_id() {
+            let layout = &self.layouts[self.curr_layout];
+            let ctx = self.make_layout_ctx();
+            
+            if let Some(new_order) = layout.swap(&ctx, current, layout::Direction::Up) {
+                *self.curr_ws_mut().windows_mut() = new_order;
+                self.layout();
+                self.refocus_and_warp(current);
+            }
+        }
+        self.suppress_cursor_focus = false;
+    }
+
+    fn swap_down(&mut self) {
+        self.suppress_cursor_focus = true;
+        if let Some(current) = self.curr_ws().get_focused_id() {
+            let layout = &self.layouts[self.curr_layout];
+            let ctx = self.make_layout_ctx();
+            
+            if let Some(new_order) = layout.swap(&ctx, current, layout::Direction::Down) {
+                *self.curr_ws_mut().windows_mut() = new_order;
+                self.layout();
+                self.refocus_and_warp(current);
+            }
+        }
+        self.suppress_cursor_focus = false;
+    }
+
     fn launcher(&mut self) {
         let _ = Command::new("sh")
             .arg("-c")
@@ -953,6 +991,30 @@ impl Nwm {
             let ctx = self.make_layout_ctx();
 
             if let Some(next) = layout.focus_next(&ctx, f_id, layout::Direction::Right) {
+                self.curr_ws_mut().set_focused_id(next);
+                self.set_focus(next);
+            }
+        }
+    }
+
+    fn focus_up(&mut self) {
+        if let Some(f_id) = self.curr_ws().get_focused_id() {
+            let layout = &self.layouts[self.curr_layout];
+            let ctx = self.make_layout_ctx();
+
+            if let Some(next) = layout.focus_next(&ctx, f_id, layout::Direction::Up) {
+                self.curr_ws_mut().set_focused_id(next);
+                self.set_focus(next);
+            }
+        }
+    }
+
+    fn focus_down(&mut self) {
+        if let Some(f_id) = self.curr_ws().get_focused_id() {
+            let layout = &self.layouts[self.curr_layout];
+            let ctx = self.make_layout_ctx();
+
+            if let Some(next) = layout.focus_next(&ctx, f_id, layout::Direction::Down) {
                 self.curr_ws_mut().set_focused_id(next);
                 self.set_focus(next);
             }

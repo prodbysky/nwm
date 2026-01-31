@@ -175,9 +175,15 @@ fn create_action_data(lua: &Lua) -> mlua::Result<mlua::Table> {
     focus_table.set("left", Action::FocusLeft)?;
     focus_table.set("right", Action::FocusRight)?;
 
+    focus_table.set("up", Action::FocusUp)?;
+    focus_table.set("down", Action::FocusDown)?;
+
     let move_table = lua.create_table()?;
     move_table.set("left", Action::MoveLeft)?;
     move_table.set("right", Action::MoveRight)?;
+
+    move_table.set("up", Action::MoveUp)?;
+    move_table.set("down", Action::MoveDown)?;
 
     action_table.set("focus", focus_table)?;
     action_table.set("move", move_table)?;
@@ -394,8 +400,12 @@ pub enum Action {
     #[default]
     FocusLeft,
     FocusRight,
+    FocusUp,
+    FocusDown,
     MoveLeft,
     MoveRight,
+    MoveUp,
+    MoveDown,
     Launcher,
     Terminal,
     CloseWindow,
