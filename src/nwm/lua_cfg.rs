@@ -212,6 +212,10 @@ fn create_action_data(lua: &Lua) -> mlua::Result<mlua::Table> {
     action_table.set("move_to_ws8", Action::MoveToWs8)?;
     action_table.set("move_to_ws9", Action::MoveToWs9)?;
 
+
+    action_table.set("next_layout", Action::NextLayout)?;
+    action_table.set("prev_layout", Action::PrevLayout)?;
+
     Ok(action_table)
 }
 
@@ -419,6 +423,8 @@ pub enum Action {
     MoveToWs7,
     MoveToWs8,
     MoveToWs9,
+    NextLayout,
+    PrevLayout,
 }
 
 impl mlua::UserData for Action {}

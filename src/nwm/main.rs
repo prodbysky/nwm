@@ -216,6 +216,14 @@ fn action_to_fn(action: lua_cfg::Action) -> fn(&mut Nwm) {
         lua_cfg::Action::Quit => |nwm: &mut Nwm| {
             nwm.running = false;
         },
+        lua_cfg::Action::NextLayout => |nwm: &mut Nwm| {
+            nwm.curr_layout = (nwm.curr_layout + 1) % 2;
+            nwm.layout();
+        },
+        lua_cfg::Action::PrevLayout => |nwm: &mut Nwm| {
+            nwm.curr_layout = nwm.curr_layout.saturating_sub(1);
+            nwm.layout();
+        }
     }
 }
 
