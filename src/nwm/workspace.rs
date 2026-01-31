@@ -13,7 +13,7 @@ pub struct Workspace {
     windows: Vec<WindowId>,
     focused: Option<WindowId>,
     floating: HashMap<WindowId, Geometry>,
-    full_screened: Option<WindowId>
+    full_screened: Option<WindowId>,
 }
 
 impl Workspace {

@@ -1,5 +1,8 @@
 use log::error;
-use std::{env::home_dir, sync::{Arc, Mutex}};
+use std::{
+    env::home_dir,
+    sync::{Arc, Mutex},
+};
 
 use mlua::Lua;
 
@@ -217,7 +220,6 @@ fn create_action_data(lua: &Lua) -> mlua::Result<mlua::Table> {
     action_table.set("move_to_ws7", Action::MoveToWs7)?;
     action_table.set("move_to_ws8", Action::MoveToWs8)?;
     action_table.set("move_to_ws9", Action::MoveToWs9)?;
-
 
     action_table.set("next_layout", Action::NextLayout)?;
     action_table.set("prev_layout", Action::PrevLayout)?;

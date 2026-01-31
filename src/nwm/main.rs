@@ -1,15 +1,15 @@
 mod better_x11rb;
+mod layout;
 mod lua_cfg;
 mod multi_log;
 mod nw_log_connection;
 mod workspace;
-mod layout;
 
 use std::{collections::HashMap, process::Command};
 
 use better_x11rb::WindowId;
 
-use log::{info, warn, error};
+use log::{error, info, warn};
 
 struct Nwm {
     x11: better_x11rb::X11RB,
@@ -37,7 +37,7 @@ struct Nwm {
     inactive_border_color: u32,
     suppress_cursor_focus: bool,
     layouts: Vec<Box<dyn layout::Layout>>,
-    curr_layout: usize
+    curr_layout: usize,
 }
 
 #[allow(dead_code)]
@@ -154,7 +154,6 @@ fn action_to_fn(action: lua_cfg::Action) -> fn(&mut Nwm) {
         lua_cfg::Action::MoveUp => Nwm::swap_up,
         lua_cfg::Action::MoveDown => Nwm::swap_down,
 
-
         lua_cfg::Action::Launcher => Nwm::launcher,
         lua_cfg::Action::Terminal => Nwm::terminal,
         lua_cfg::Action::CloseWindow => Nwm::close_focused,
@@ -225,13 +224,18 @@ fn action_to_fn(action: lua_cfg::Action) -> fn(&mut Nwm) {
             nwm.running = false;
         },
         lua_cfg::Action::NextLayout => |nwm: &mut Nwm| {
-            nwm.curr_layout = (nwm.curr_layout + 1) % 3;
+            nwm.curr_layout = (nwm.curr_layout + 1) % nwm.layouts.len();
             nwm.layout();
         },
         lua_cfg::Action::PrevLayout => |nwm: &mut Nwm| {
-            nwm.curr_layout = nwm.curr_layout.saturating_sub(1);
+            match nwm.curr_layout {
+                0 => nwm.curr_layout = nwm.layouts.len() - 1,
+                _ => {
+                    nwm.curr_layout = nwm.curr_layout - 1;
+                }
+            };
             nwm.layout();
-        }
+        },
     }
 }
 
@@ -328,7 +332,8 @@ impl Nwm {
         let file = std::fs::OpenOptions::new()
             .append(true)
             .create(true)
-            .open("/tmp/nwm.log").unwrap();
+            .open("/tmp/nwm.log")
+            .unwrap();
 
         multi_log::MultiLog::init(
             vec![
@@ -390,9 +395,7 @@ impl Nwm {
 
         let state_atom = x11_ab.intern_atom(b"_NET_WM_STATE");
         if state_atom.is_none() {
-            warn!(
-                "Failed to intern _NET_WM_STATE, fullscreen state will not be handled"
-            );
+            warn!("Failed to intern _NET_WM_STATE, fullscreen state will not be handled");
         }
         use x11rb::wrapper::ConnectionExt;
 
@@ -443,7 +446,7 @@ impl Nwm {
             border_width: width,
             suppress_cursor_focus: false,
             layouts,
-            curr_layout: 0
+            curr_layout: 0,
         })
     }
     fn refocus_and_warp(&mut self, id: WindowId) {
@@ -495,12 +498,18 @@ impl Nwm {
         let rep = self
             .x11
             .conn
-            .get_property(false, w, atom, AtomEnum::CARDINAL, 0, 12).map_err(|e| {
+            .get_property(false, w, atom, AtomEnum::CARDINAL, 0, 12)
+            .map_err(|e| {
                 warn!("Failed to get _NET_WM_STRUT_PARTIAL property: {e}");
-            }).ok()?
-            .reply().map_err(|e| {
-                warn!("Failed to get _NET_WM_STRUT_PARTIAL property reply from the x11 server: {e}");
-            }).ok()?;
+            })
+            .ok()?
+            .reply()
+            .map_err(|e| {
+                warn!(
+                    "Failed to get _NET_WM_STRUT_PARTIAL property reply from the x11 server: {e}"
+                );
+            })
+            .ok()?;
 
         let values = rep.value32()?.collect::<Vec<_>>();
 
@@ -572,7 +581,7 @@ impl Nwm {
     }
 
     fn unset_fullscreen(&mut self) {
-        if let Some(id) = self.curr_ws().get_fullscreen_id(){
+        if let Some(id) = self.curr_ws().get_fullscreen_id() {
             for w in self.curr_ws().windows().iter().filter(|w_id| **w_id != id) {
                 _ = self.x11.conn.map_window(*w);
             }
@@ -591,7 +600,7 @@ impl Nwm {
                     error!("Failed to get X11 event due to an IO error, aborting :( : {e}");
                     self.running = false;
                     return;
-                },
+                }
                 Err(e) => {
                     error!("Failed to get X11 event due to: {e}");
                     continue;
@@ -631,9 +640,15 @@ impl Nwm {
                 Event::MappingNotify(_) => {}
                 Event::ConfigureRequest(_) => self.layout(),
                 Event::ClientMessage(e) => {
-                    if let Some(sa) = self.state_atom && let Some(fsa) = self.fullscreen_state_atom {
+                    if let Some(sa) = self.state_atom
+                        && let Some(fsa) = self.fullscreen_state_atom
+                    {
                         if e.type_ == sa {
-                            let (action, first, second) = (e.data.as_data32()[0], e.data.as_data32()[1], e.data.as_data32()[2]);
+                            let (action, first, second) = (
+                                e.data.as_data32()[0],
+                                e.data.as_data32()[1],
+                                e.data.as_data32()[2],
+                            );
                             if first == fsa || second == fsa {
                                 match action {
                                     0 => {
@@ -708,9 +723,11 @@ impl Nwm {
     }
 
     fn set_window_border_width(&mut self, w: WindowId, width: u8) {
-        _ = self.x11
+        _ = self
+            .x11
             .conn
-            .configure_window(w, &ConfigureWindowAux::new().border_width(width as u32)).map_err(|e| {
+            .configure_window(w, &ConfigureWindowAux::new().border_width(width as u32))
+            .map_err(|e| {
                 warn!("Failed to set windows {w} border width to {width}: {e}");
             });
     }
@@ -741,7 +758,8 @@ impl Nwm {
         }
 
         if let Some(ada) = self.active_desktop_atom {
-            _ = self.x11
+            _ = self
+                .x11
                 .conn
                 .change_property32(
                     PropMode::REPLACE,
@@ -761,15 +779,8 @@ impl Nwm {
 
     fn tiled_window_rects(&self) -> Vec<(WindowId, Rect)> {
         let layout = &self.layouts[self.curr_layout];
-        
-        let ctx = layout::LayoutContext {
-            windows: self.curr_ws().windows(),
-            screen_width: self.x11.screen_size().0,
-            screen_height: self.x11.screen_size().1,
-            gap: self.gap,
-            reserved: self.get_reserved_space(),
-        };
-        
+
+        let ctx = self.make_layout_ctx();
         layout.arrange(&ctx)
     }
 
@@ -815,13 +826,18 @@ impl Nwm {
             return;
         }
         if self.window_is_normal(event.window) {
-            _ = self.x11
+            _ = self
+                .x11
                 .conn
                 .change_window_attributes(
                     event.window,
                     &ChangeWindowAttributesAux::new().event_mask(EventMask::ENTER_WINDOW),
-                ).map_err(|e| {
-                    error!("Failed to set tiled window {window} event mask: {e}", window = event.window)
+                )
+                .map_err(|e| {
+                    error!(
+                        "Failed to set tiled window {window} event mask: {e}",
+                        window = event.window
+                    )
                 });
             self.set_window_border_width(event.window, self.border_width);
             self.set_window_border_pixel(event.window, self.inactive_border_color);
@@ -830,13 +846,18 @@ impl Nwm {
             self.layout();
             self.x11.focus_window(event.window);
         } else {
-            _ = self.x11
+            _ = self
+                .x11
                 .conn
                 .change_window_attributes(
                     event.window,
                     &ChangeWindowAttributesAux::new().event_mask(EventMask::ENTER_WINDOW),
-                ).map_err(|e| {
-                    error!("Failed to set floating window {window} event mask: {e}", window = event.window)
+                )
+                .map_err(|e| {
+                    error!(
+                        "Failed to set floating window {window} event mask: {e}",
+                        window = event.window
+                    )
                 });
             let (w, h) =
                 x11rb::properties::WmSizeHints::get_normal_hints(&self.x11.conn, event.window)
@@ -899,7 +920,7 @@ impl Nwm {
         if let Some(current) = self.curr_ws().get_focused_id() {
             let layout = &self.layouts[self.curr_layout];
             let ctx = self.make_layout_ctx();
-            
+
             if let Some(new_order) = layout.swap(&ctx, current, layout::Direction::Left) {
                 *self.curr_ws_mut().windows_mut() = new_order;
                 self.layout();
@@ -914,7 +935,7 @@ impl Nwm {
         if let Some(current) = self.curr_ws().get_focused_id() {
             let layout = &self.layouts[self.curr_layout];
             let ctx = self.make_layout_ctx();
-            
+
             if let Some(new_order) = layout.swap(&ctx, current, layout::Direction::Right) {
                 *self.curr_ws_mut().windows_mut() = new_order;
                 self.layout();
@@ -929,7 +950,7 @@ impl Nwm {
         if let Some(current) = self.curr_ws().get_focused_id() {
             let layout = &self.layouts[self.curr_layout];
             let ctx = self.make_layout_ctx();
-            
+
             if let Some(new_order) = layout.swap(&ctx, current, layout::Direction::Up) {
                 *self.curr_ws_mut().windows_mut() = new_order;
                 self.layout();
@@ -944,7 +965,7 @@ impl Nwm {
         if let Some(current) = self.curr_ws().get_focused_id() {
             let layout = &self.layouts[self.curr_layout];
             let ctx = self.make_layout_ctx();
-            
+
             if let Some(new_order) = layout.swap(&ctx, current, layout::Direction::Down) {
                 *self.curr_ws_mut().windows_mut() = new_order;
                 self.layout();
@@ -1071,10 +1092,9 @@ impl Nwm {
     }
 }
 
-fn main() -> Result<(), ()>{
-    let display_name = std::env::var("DISPLAY").map_err(|e| {
-        error!("Failed to get $DISPLAY. Aborting: {e}")
-    })?;
+fn main() -> Result<(), ()> {
+    let display_name =
+        std::env::var("DISPLAY").map_err(|e| error!("Failed to get $DISPLAY. Aborting: {e}"))?;
     match Nwm::create(&display_name) {
         Some(nwm) => nwm.run(),
         None => {

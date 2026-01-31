@@ -3,13 +3,16 @@ use std::collections::HashMap;
 use log::{error, warn};
 
 use x11rb::{
-    connection::Connection, errors::ConnectionError, protocol::{
+    connection::Connection,
+    errors::ConnectionError,
+    protocol::{
         Event,
         xproto::{
             Atom, ChangeWindowAttributesAux, ConfigureWindowAux, ConnectionExt, EventMask,
             GrabMode, InputFocus, Keycode, MappingNotifyEvent, ModMask, Screen, StackMode, Time,
         },
-    }, rust_connection::RustConnection
+    },
+    rust_connection::RustConnection,
 };
 
 pub type WindowId = u32;
@@ -153,9 +156,7 @@ impl X11RB {
 
     pub fn next_event(&mut self) -> Result<Event, ConnectionError> {
         self.conn.flush()?;
-        let e = self
-            .conn
-            .wait_for_event()?;
+        let e = self.conn.wait_for_event()?;
 
         match e {
             Event::MotionNotify(e) => {
