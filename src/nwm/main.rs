@@ -397,7 +397,8 @@ impl Nwm {
         }
 
         let layouts: Vec<Box<dyn layout::Layout>> = vec![
-            Box::new(layout::HorizontalTiling)
+            Box::new(layout::HorizontalTiling),
+            Box::new(layout::VerticalTiling),
         ];
 
         Some(Self {

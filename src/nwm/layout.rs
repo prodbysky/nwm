@@ -27,6 +27,7 @@ pub struct LayoutContext<'a> {
 }
 
 pub struct HorizontalTiling;
+pub struct VerticalTiling;
 
 impl Layout for HorizontalTiling {
     fn arrange(&self, ctx: &LayoutContext) -> Vec<(WindowId, Rect)> {
@@ -104,6 +105,82 @@ impl Layout for HorizontalTiling {
                 }
             }
             Direction::Up | Direction::Down => None,
+        }
+    }
+}
+
+impl Layout for VerticalTiling {
+    fn arrange(&self, ctx: &LayoutContext) -> Vec<(WindowId, Rect)> {
+        let mut rects = vec![];
+        let n = ctx.windows.len() as i16;
+        if n == 0 { return rects; }
+        
+        let sw = ctx.screen_width as i16 - (ctx.reserved.x0 + ctx.reserved.x1) as i16;
+        let sh = ctx.screen_height as i16 - (ctx.reserved.y0 + ctx.reserved.y1) as i16;
+        let gap = ctx.gap as i16;
+        let offset_x = ctx.reserved.x0 as i16;
+        let offset_y = ctx.reserved.y0 as i16;
+        
+        let usable_h = sh - gap * 2;
+        let slot_h = usable_h / n;
+        
+        for (i, &win) in ctx.windows.iter().enumerate() {
+            let x = gap + offset_x;
+            let y = gap + (i as i16) * slot_h + gap / 2 + offset_y;
+            let w = sw - gap * 2;
+            let h = slot_h - gap;
+            
+            if w > 0 && h > 0 {
+                rects.push((win, Rect { x, y, w, h }));
+            }
+        }
+        
+        rects
+    }
+
+    fn focus_next(&self, ctx: &LayoutContext, current: WindowId, dir: Direction) -> Option<WindowId> {
+        let pos = ctx.windows.iter().position(|x| *x == current)?;
+        match dir {
+            Direction::Left | Direction::Right => None,
+            Direction::Up => {
+                if pos > 0 {
+                    ctx.windows.get(pos - 1).copied()
+                } else {
+                    None
+                }
+            }
+            Direction::Down => {
+                if pos < ctx.windows.len() - 1 {
+                    ctx.windows.get(pos + 1).copied()
+                } else {
+                    None
+                }
+            }
+        }
+    }
+
+    fn swap(&self, ctx: &LayoutContext, current: WindowId, dir: Direction) -> Option<Vec<WindowId>> {
+        let pos = ctx.windows.iter().position(|&w| w == current)?;
+        let mut new_order = ctx.windows.to_vec();
+        
+        match dir {
+            Direction::Up => {
+                if pos > 0 {
+                    new_order.swap(pos, pos - 1);
+                    Some(new_order)
+                } else {
+                    None
+                }
+            }
+            Direction::Down => {
+                if pos < new_order.len() - 1 {
+                    new_order.swap(pos, pos + 1);
+                    Some(new_order)
+                } else {
+                    None
+                }
+            }
+            Direction::Left | Direction::Right => None,
         }
     }
 }
