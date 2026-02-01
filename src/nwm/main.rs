@@ -29,6 +29,7 @@ struct Nwm {
     struts: HashMap<WindowId, Strut>,
 
     gap: u8,
+    master_ratio: f32,
     binds: Vec<Bind>,
     terminal: String,
     launcher: String,
@@ -236,6 +237,22 @@ fn action_to_fn(action: lua_cfg::Action) -> fn(&mut Nwm) {
             };
             nwm.layout();
         },
+        lua_cfg::Action::GapUp => |nwm: &mut Nwm| {
+            nwm.gap += 1;
+            nwm.layout();
+        },
+        lua_cfg::Action::GapDown => |nwm: &mut Nwm| {
+            nwm.gap = nwm.gap.saturating_sub(1);
+            nwm.layout();
+        },
+        lua_cfg::Action::MasterRatioDown => |nwm: &mut Nwm| {
+            nwm.master_ratio = (nwm.master_ratio - 0.1).clamp(0.1, 0.9);
+            nwm.layout();
+        },
+        lua_cfg::Action::MasterRatioUp => |nwm: &mut Nwm| {
+            nwm.master_ratio = (nwm.master_ratio + 0.1).clamp(0.1, 0.9);
+            nwm.layout();
+        },
     }
 }
 
@@ -243,7 +260,7 @@ impl Nwm {
     fn apply_lua_config(
         conf: lua_cfg::Config,
         x11: &mut better_x11rb::X11RB,
-    ) -> (u8, Vec<Bind>, String, String, u32, u32, u8) {
+    ) -> (u8, Vec<Bind>, String, String, u32, u32, u8, f32) {
         let settings = conf.settings;
 
         let mut binds = Vec::new();
@@ -277,6 +294,7 @@ impl Nwm {
             settings.border_active_color,
             settings.border_inactive_color,
             settings.border_width as u8,
+            settings.master_ratio
         )
     }
 
@@ -305,7 +323,7 @@ impl Nwm {
 
         self.binds.clear();
 
-        let (gap, binds, terminal, launcher, active, inactive, width) =
+        let (gap, binds, terminal, launcher, active, inactive, width, master_ratio) =
             Self::apply_lua_config(conf, &mut self.x11);
 
         self.gap = gap;
@@ -315,6 +333,7 @@ impl Nwm {
         self.active_border_color = active;
         self.inactive_border_color = inactive;
         self.border_width = width;
+        self.master_ratio = master_ratio;
 
         for ws in self.workspaces.clone() {
             for w in ws.windows() {
@@ -350,7 +369,7 @@ impl Nwm {
             warn!("Failed to load config on startup using barebones default config");
             lua_cfg::Config::default()
         });
-        let (gap, binds, terminal, launcher, active, inactive, width) =
+        let (gap, binds, terminal, launcher, active, inactive, width, master_ratio) =
             Self::apply_lua_config(conf, &mut x11_ab);
 
         info!("Everything went well in initialization :DD");
@@ -447,6 +466,7 @@ impl Nwm {
             suppress_cursor_focus: false,
             layouts,
             curr_layout: 0,
+            master_ratio
         })
     }
     fn refocus_and_warp(&mut self, id: WindowId) {
@@ -912,6 +932,7 @@ impl Nwm {
             screen_height: self.x11.screen_size().1,
             gap: self.gap,
             reserved: self.get_reserved_space(),
+            master_ratio: self.master_ratio
         }
     }
 

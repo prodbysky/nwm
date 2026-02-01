@@ -1,5 +1,6 @@
 nwm.set.master_key(nwm.modifier.Super)
 nwm.set.gap(8)
+nwm.set.master_ratio(0.25)
 nwm.set.terminal("alacritty")
 nwm.set.launcher("dmenu_run")
 nwm.set.border_width(2)
@@ -49,6 +50,12 @@ nwm.bind("Shift-0", nwm.action.move_to_ws9)
 
 nwm.bind("Control-n", nwm.action.next_layout)
 nwm.bind("Control-m", nwm.action.prev_layout)
+
+nwm.bind("o", nwm.action.gap_up)
+nwm.bind("p", nwm.action.gap_down)
+
+nwm.bind("u", nwm.action.master_ratio_up)
+nwm.bind("i", nwm.action.master_ratio_down)
 
 nwm.bind("r", nwm.action.reload)
 

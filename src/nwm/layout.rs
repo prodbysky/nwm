@@ -29,6 +29,7 @@ pub struct LayoutContext<'a> {
     pub screen_height: u16,
     pub gap: u8,
     pub reserved: Reserve,
+    pub master_ratio: f32
 }
 
 pub struct HorizontalTiling;
@@ -240,7 +241,7 @@ impl Layout for MasterLayout {
                 },
             ));
         } else {
-            let master_w = ((sw as f32) * 0.5) as i16;
+            let master_w = ((sw as f32) * ctx.master_ratio) as i16;
             rects.push((
                 ctx.windows[0],
                 Rect {

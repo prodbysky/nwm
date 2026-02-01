@@ -121,6 +121,20 @@ fn create_set_api(lua: &Lua, config: Arc<Mutex<Config>>) -> mlua::Result<mlua::T
         }};
     }
 
+    macro_rules! set_float {
+        ($name:literal, $field:ident) => {{
+            let cfg = config.clone();
+            set_table.set(
+                $name,
+                lua.create_function(move |_, n: f32| {
+                    cfg.lock().unwrap().settings.$field = n;
+                    Ok(())
+                })?,
+            )?;
+        }};
+    }
+
+
     macro_rules! set_string {
         ($name:literal, $field:ident) => {{
             let cfg = config.clone();
@@ -156,6 +170,8 @@ fn create_set_api(lua: &Lua, config: Arc<Mutex<Config>>) -> mlua::Result<mlua::T
 
     set_color!("border_active_color", border_active_color);
     set_color!("border_inactive_color", border_inactive_color);
+
+    set_float!("master_ratio", master_ratio);
 
     {
         let cfg = config.clone();
@@ -223,6 +239,12 @@ fn create_action_data(lua: &Lua) -> mlua::Result<mlua::Table> {
 
     action_table.set("next_layout", Action::NextLayout)?;
     action_table.set("prev_layout", Action::PrevLayout)?;
+
+    action_table.set("gap_up", Action::GapUp)?;
+    action_table.set("gap_down", Action::GapDown)?;
+
+    action_table.set("master_ratio_up", Action::MasterRatioUp)?;
+    action_table.set("master_ratio_down", Action::MasterRatioDown)?;
 
     Ok(action_table)
 }
@@ -347,6 +369,7 @@ pub struct Settings {
     pub border_width: usize,
     pub border_active_color: u32,
     pub border_inactive_color: u32,
+    pub master_ratio: f32,
 }
 
 impl Default for Settings {
@@ -359,6 +382,7 @@ impl Default for Settings {
             border_width: 2,
             border_active_color: 0xffffffff,
             border_inactive_color: 0xff181818,
+            master_ratio: 0.5,
         }
     }
 }
@@ -437,6 +461,10 @@ pub enum Action {
     MoveToWs9,
     NextLayout,
     PrevLayout,
+    GapUp,
+    GapDown,
+    MasterRatioUp,
+    MasterRatioDown,
 }
 
 impl mlua::UserData for Action {}
