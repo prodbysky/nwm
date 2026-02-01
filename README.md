@@ -30,6 +30,102 @@ On startup you will see a blank screen (that you will probably want to fill up w
 As mentioned bar/strut support is implemented so you are free to use polybar for more status info.
 If you are facing issues with nwm, check the logs in `/tmp/nwm.log` or run `nwlog`. 
 
+## Configuration guide
+All configuration is done in lua. So far all standard lua modules are enabled, 
+because at the end of the day this is YOUR config, that either you write or copy it from someone else, therefore for convenience you can abuse
+standard lua :)
+
+
+### Master key
+To start with anything you do in nwm is prefixed by your **master key** (refered later to by **MK**), this is explained later.
+The available keys are in the `nwm.modifier` table and they are:
+ - Super
+ - Alt
+ - Control
+You can set **MK** by calling the function `nwm.set.master_key(<key>)`.
+
+### Actions
+Actions can: 
+ - Move windows around the workspace and move to other ones
+ - Shift focus 
+ - Reload the config
+ - Switch between available layouts
+ - Change the gap size
+ - Change the master layout ratio
+ - Launch root programs
+
+Actions can be bound with the `nwm.bind` function, which takes
+a string with the bind, and the action in the `nwm.action` table.
+A bind is arbitrarily long sequence of modifiers and final non-modifier key.
+Each element is separated by hyphens (-).
+Some example valid keybinds include:
+ - "1"
+ - "2"
+ - "p"
+ - "Space"
+ - "Return"
+ - "Shift-2"
+ - "Control-a"
+ - "Control-Shift-2"
+
+### Shifting window focus
+To move your focus around the actions within the `nwm.action.focus` table are provided.
+For example to bind "MasterKey-h" to be the keybind to focus to the left window you do this:
+```lua
+    nwm.bind("h", nwm.action.focus.left)
+```
+
+### Moving windows within the workspace
+To move a window around the actions within the `nwm.action.move` table are provided.
+For example to bind "MasterKey-Shift-h" to be the keybind to move to the left window you do this:
+```lua
+    nwm.bind("Shift-h", nwm.action.move.left)
+```
+
+### Closing windows
+To close a window the `nwm.action.close` action is provided
+
+### Launching "Root" applications
+The so called "root" applications are your terminal and app launcher.
+Each can be bound with the same `nwm.bind` function and the action for each is `nwm.action.launcher` and `nwm.action.terminal`.
+Example:
+```lua
+    nwm.bind("Space", nwm.action.launcher)
+    nwm.bind("Return", nwm.action.terminal)
+```
+
+### Workspaces
+To show one of the 10 (0-9) workspaces the action `nwm.action.ws(0-9)` is given.
+Whereas to move a window to a specific workspace the action `nwm.action.move_to_ws(0-9)` is provided.
+
+### Cycling between layouts
+To switch between the three available layouts (horizontal, vertical, master stack) actions `nwm.action.next_layout` and `nwm.action.prev_layout` are provided.
+
+### Changing gaps/master ratio at runtime
+To change the gap size actions `nwm.action.gap_up` and `nwm.action.gap_down` are given.
+To change the master split ratio actions `nwm.action.master_ratio_up` and `nwm.action.master_ratio_down` are given.
+
+### Reloading the config
+The action `nwm.action.reload` is given to be used with the `nwm.bind` function
+
+
+### Launching programs on startup
+To launch for example pipewire or feh and not to launch them multiple times after each reload
+The boolean `nwm.first_boot` value is given
+
+### Variables
+The configuration variables are set by the functions within the `nwm.set` table.
+Brief explanation of each one:
+ - `nwm.set.master_key()`                - Explained in the master key section
+ - `nwm.set.gap()`                       - Sets the gap between each window (inner and outer), takes a positive integer
+ - `nwm.set.master_ratio()`              - Sets the master ratio (explained later), takes a positive floating point number (0..1)
+ - `nwm.set.terminal()`                  - Sets the command to be run when `nwm.action.terminal` is triggered, takes a string
+ - `nwm.set.launcher()`                  - Sets the command to be run when `nwm.action.launcher` is triggered, takes a string
+ - `nwm.set.border_width()`              - Sets the border width around each window, takes a positive integer
+ - `nwm.set.border_active_color()`       - Sets the border color for the focused window, takes a string in this format: "#RRGGBB"
+ - `nwm.set.border_inactive_color()`     - Sets the border color for the not focused windows, takes a string in this format: "#RRGGBB"
+
+
 ## Contribution / issue reporting
 If you want to contribute, fork the repository, do not make changes on the master branch
 always make a separate branch, have clear commit messages, in the PR include your reasons what does this accomplish.
