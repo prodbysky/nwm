@@ -1,3 +1,6 @@
+/// Helper for logging support, this is not fully original as I found a crate for this but
+/// I figured that I don't need an extra dep.
+/// Reference crate: https://github.com/davechallis/multi_log
 use log::Log;
 
 pub struct MultiLog {

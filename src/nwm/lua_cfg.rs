@@ -134,7 +134,6 @@ fn create_set_api(lua: &Lua, config: Arc<Mutex<Config>>) -> mlua::Result<mlua::T
         }};
     }
 
-
     macro_rules! set_string {
         ($name:literal, $field:ident) => {{
             let cfg = config.clone();

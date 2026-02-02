@@ -1,4 +1,5 @@
 mod better_x11rb;
+mod ewmh;
 mod layout;
 mod lua_cfg;
 mod multi_log;
@@ -19,14 +20,8 @@ struct Nwm {
     running: bool,
     last_x: i16,
     last_y: i16,
-    window_type_atom: Option<Atom>,
-    window_type_normal_atom: Option<Atom>,
-    window_type_dock_atom: Option<Atom>,
-    strut_partial_atom: Option<Atom>,
-    active_desktop_atom: Option<Atom>,
-    state_atom: Option<Atom>,
-    fullscreen_state_atom: Option<Atom>,
-    struts: HashMap<WindowId, Strut>,
+    ewmh: ewmh::Ewmh,
+    struts: HashMap<WindowId, ewmh::Strut>,
 
     gap: u8,
     master_ratio: f32,
@@ -37,223 +32,7 @@ struct Nwm {
     active_border_color: u32,
     inactive_border_color: u32,
     suppress_cursor_focus: bool,
-    layouts: Vec<Box<dyn layout::Layout>>,
-    curr_layout: usize,
-}
-
-#[allow(dead_code)]
-struct Strut {
-    left: u32,
-    right: u32,
-    top: u32,
-    bottom: u32,
-
-    left_start_y: u32,
-    left_end_y: u32,
-    right_start_y: u32,
-    right_end_y: u32,
-    top_start_x: u32,
-    top_end_x: u32,
-    bottom_start_x: u32,
-    bottom_end_x: u32,
-}
-
-impl From<[u32; 12]> for Strut {
-    fn from(value: [u32; 12]) -> Self {
-        Strut {
-            left: value[0],
-            right: value[1],
-            top: value[2],
-            bottom: value[3],
-            left_start_y: value[4],
-            left_end_y: value[5],
-            right_start_y: value[6],
-            right_end_y: value[7],
-            top_start_x: value[8],
-            top_end_x: value[9],
-            bottom_start_x: value[10],
-            bottom_end_x: value[11],
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-struct Bind {
-    action: fn(&mut Nwm),
-    bind: lua_cfg::KeyCombo,
-}
-
-fn keycombo_mask(kc: &lua_cfg::KeyCombo) -> u16 {
-    let mut mask = 0;
-    for m in &kc.prefixes {
-        mask |= match m {
-            lua_cfg::SpecialKey::Shift => ModMask::SHIFT,
-            lua_cfg::SpecialKey::Control => ModMask::CONTROL,
-            lua_cfg::SpecialKey::Alt => ModMask::M1,
-            lua_cfg::SpecialKey::Super => ModMask::M4,
-        };
-    }
-    mask
-}
-
-impl Bind {
-    fn try_do(&self, nwm: &mut Nwm, ev: KeyPressEvent) {
-        let want_keycode = nwm.x11.key_to_keycode(self.bind.key.into_x11rb());
-
-        if ev.detail as u32 != want_keycode {
-            return;
-        }
-
-        let want_mask = keycombo_mask(&self.bind);
-        let actual_mask = ev.state & !(ModMask::M2 | ModMask::LOCK).bits();
-
-        if actual_mask.bits() != want_mask {
-            return;
-        }
-
-        (self.action)(nwm);
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-struct Rect {
-    x: i16,
-    y: i16,
-    w: i16,
-    h: i16,
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-struct Reserve {
-    x0: u32,
-    y0: u32,
-    x1: u32,
-    y1: u32,
-}
-
-use x11rb::{
-    protocol::{
-        Event,
-        xproto::{
-            Atom, AtomEnum, ChangeWindowAttributesAux, ConfigureWindowAux, ConnectionExt,
-            EventMask, KeyPressEvent, MapRequestEvent, ModMask, PropMode, UnmapNotifyEvent,
-        },
-    },
-    wrapper::ConnectionExt as OtherConnExt,
-};
-
-fn action_to_fn(action: lua_cfg::Action) -> fn(&mut Nwm) {
-    match action {
-        lua_cfg::Action::FocusLeft => Nwm::focus_left,
-        lua_cfg::Action::FocusRight => Nwm::focus_right,
-        lua_cfg::Action::MoveLeft => Nwm::swap_left,
-        lua_cfg::Action::MoveRight => Nwm::swap_right,
-
-        lua_cfg::Action::FocusUp => Nwm::focus_up,
-        lua_cfg::Action::FocusDown => Nwm::focus_down,
-
-        lua_cfg::Action::MoveUp => Nwm::swap_up,
-        lua_cfg::Action::MoveDown => Nwm::swap_down,
-
-        lua_cfg::Action::Launcher => Nwm::launcher,
-        lua_cfg::Action::Terminal => Nwm::terminal,
-        lua_cfg::Action::CloseWindow => Nwm::close_focused,
-        lua_cfg::Action::NextWs => Nwm::focus_next_ws,
-        lua_cfg::Action::PrevWs => Nwm::focus_prev_ws,
-        lua_cfg::Action::ReloadConfig => Nwm::reload_config,
-        lua_cfg::Action::Ws0 => |nwm: &mut Nwm| {
-            nwm.switch_ws(0);
-        },
-        lua_cfg::Action::Ws1 => |nwm: &mut Nwm| {
-            nwm.switch_ws(1);
-        },
-        lua_cfg::Action::Ws2 => |nwm: &mut Nwm| {
-            nwm.switch_ws(2);
-        },
-        lua_cfg::Action::Ws3 => |nwm: &mut Nwm| {
-            nwm.switch_ws(3);
-        },
-        lua_cfg::Action::Ws4 => |nwm: &mut Nwm| {
-            nwm.switch_ws(4);
-        },
-        lua_cfg::Action::Ws5 => |nwm: &mut Nwm| {
-            nwm.switch_ws(5);
-        },
-        lua_cfg::Action::Ws6 => |nwm: &mut Nwm| {
-            nwm.switch_ws(6);
-        },
-        lua_cfg::Action::Ws7 => |nwm: &mut Nwm| {
-            nwm.switch_ws(7);
-        },
-        lua_cfg::Action::Ws8 => |nwm: &mut Nwm| {
-            nwm.switch_ws(8);
-        },
-        lua_cfg::Action::Ws9 => |nwm: &mut Nwm| {
-            nwm.switch_ws(9);
-        },
-        lua_cfg::Action::MoveToWs0 => |nwm: &mut Nwm| {
-            nwm.move_focused_to_ws(0);
-        },
-        lua_cfg::Action::MoveToWs1 => |nwm: &mut Nwm| {
-            nwm.move_focused_to_ws(1);
-        },
-        lua_cfg::Action::MoveToWs2 => |nwm: &mut Nwm| {
-            nwm.move_focused_to_ws(2);
-        },
-        lua_cfg::Action::MoveToWs3 => |nwm: &mut Nwm| {
-            nwm.move_focused_to_ws(3);
-        },
-        lua_cfg::Action::MoveToWs4 => |nwm: &mut Nwm| {
-            nwm.move_focused_to_ws(4);
-        },
-        lua_cfg::Action::MoveToWs5 => |nwm: &mut Nwm| {
-            nwm.move_focused_to_ws(5);
-        },
-        lua_cfg::Action::MoveToWs6 => |nwm: &mut Nwm| {
-            nwm.move_focused_to_ws(6);
-        },
-        lua_cfg::Action::MoveToWs7 => |nwm: &mut Nwm| {
-            nwm.move_focused_to_ws(7);
-        },
-        lua_cfg::Action::MoveToWs8 => |nwm: &mut Nwm| {
-            nwm.move_focused_to_ws(8);
-        },
-        lua_cfg::Action::MoveToWs9 => |nwm: &mut Nwm| {
-            nwm.move_focused_to_ws(9);
-        },
-        lua_cfg::Action::Quit => |nwm: &mut Nwm| {
-            nwm.running = false;
-        },
-        lua_cfg::Action::NextLayout => |nwm: &mut Nwm| {
-            nwm.curr_layout = (nwm.curr_layout + 1) % nwm.layouts.len();
-            nwm.layout();
-        },
-        lua_cfg::Action::PrevLayout => |nwm: &mut Nwm| {
-            match nwm.curr_layout {
-                0 => nwm.curr_layout = nwm.layouts.len() - 1,
-                _ => {
-                    nwm.curr_layout = nwm.curr_layout - 1;
-                }
-            };
-            nwm.layout();
-        },
-        lua_cfg::Action::GapUp => |nwm: &mut Nwm| {
-            nwm.gap += 1;
-            nwm.layout();
-        },
-        lua_cfg::Action::GapDown => |nwm: &mut Nwm| {
-            nwm.gap = nwm.gap.saturating_sub(1);
-            nwm.layout();
-        },
-        lua_cfg::Action::MasterRatioDown => |nwm: &mut Nwm| {
-            nwm.master_ratio = (nwm.master_ratio - 0.1).clamp(0.1, 0.9);
-            nwm.layout();
-        },
-        lua_cfg::Action::MasterRatioUp => |nwm: &mut Nwm| {
-            nwm.master_ratio = (nwm.master_ratio + 0.1).clamp(0.1, 0.9);
-            nwm.layout();
-        },
-    }
+    layout_man: layout::LayoutManager,
 }
 
 impl Nwm {
@@ -294,7 +73,7 @@ impl Nwm {
             settings.border_active_color,
             settings.border_inactive_color,
             settings.border_width as u8,
-            settings.master_ratio
+            settings.master_ratio,
         )
     }
 
@@ -380,65 +159,8 @@ impl Nwm {
             warn!("Terminal wasn't set to a program");
         }
 
-        let window_type_atom = x11_ab.intern_atom(b"_NET_WM_WINDOW_TYPE");
-        if window_type_atom.is_none() {
-            warn!("Failed to intern _NET_WM_WINDOW_TYPE, emwh window type support is not present");
-        }
-        let window_type_dock_atom = x11_ab.intern_atom(b"_NET_WM_WINDOW_TYPE_DOCK");
-
-        if window_type_dock_atom.is_none() {
-            warn!(
-                "Failed to intern _NET_WM_WINDOW_TYPE_DOCK, emwh window type support is not present"
-            );
-        }
-
-        let window_type_normal_atom = x11_ab.intern_atom(b"_NET_WM_WINDOW_TYPE_NORMAL");
-        if window_type_normal_atom.is_none() {
-            warn!(
-                "Failed to intern _NET_WM_WINDOW_TYPE_NORMAL, emwh window type support is not present"
-            );
-        }
-        let strut_partial_atom = x11_ab.intern_atom(b"_NET_WM_STRUT_PARTIAL");
-        if strut_partial_atom.is_none() {
-            warn!(
-                "Failed to intern _NET_WM_STRUT_PARTIAL, docks that depend on this won't resize other windows"
-            );
-        }
-
-        let fullscreen_state_atom = x11_ab.intern_atom(b"_NET_WM_STATE_FULLSCREEN");
-        if fullscreen_state_atom.is_none() {
-            warn!(
-                "Failed to intern _NET_WM_STATE_FULLSCREEN, fullscreen state will not be handled"
-            );
-        }
-
-        let state_atom = x11_ab.intern_atom(b"_NET_WM_STATE");
-        if state_atom.is_none() {
-            warn!("Failed to intern _NET_WM_STATE, fullscreen state will not be handled");
-        }
-        use x11rb::wrapper::ConnectionExt;
-
-        let active_desktop_atom = x11_ab.intern_atom(b"_NET_CURRENT_DESKTOP");
-        if let Some(at) = active_desktop_atom {
-            _ = x11_ab
-                .conn
-                .change_property32(
-                    PropMode::REPLACE,
-                    x11_ab.root_window(),
-                    at,
-                    AtomEnum::CARDINAL,
-                    &[10],
-                )
-                .map_err(|e| {
-                    warn!("Failed to set _NET_CURRENT_DESKTOP: {e}");
-                });
-        }
-
-        let layouts: Vec<Box<dyn layout::Layout>> = vec![
-            Box::new(layout::HorizontalTiling),
-            Box::new(layout::VerticalTiling),
-            Box::new(layout::MasterLayout),
-        ];
+        let mut ewmh = ewmh::Ewmh::new(&mut x11_ab);
+        ewmh.switch_active_desktop(&mut x11_ab, 0);
 
         Some(Self {
             x11: x11_ab,
@@ -451,22 +173,15 @@ impl Nwm {
             binds,
             launcher,
             terminal,
-            window_type_atom,
-            window_type_dock_atom,
-            strut_partial_atom,
-            active_desktop_atom,
-            window_type_normal_atom,
-            state_atom,
-            fullscreen_state_atom,
             struts: HashMap::new(),
             last_focused: None,
             active_border_color: active,
             inactive_border_color: inactive,
             border_width: width,
             suppress_cursor_focus: false,
-            layouts,
-            curr_layout: 0,
-            master_ratio
+            layout_man: layout::LayoutManager::default(),
+            master_ratio,
+            ewmh,
         })
     }
     fn refocus_and_warp(&mut self, id: WindowId) {
@@ -493,54 +208,6 @@ impl Nwm {
         }
 
         self.set_focus(id);
-    }
-
-    fn get_window_type(&self, w: WindowId, atom: Atom) -> Option<Vec<Atom>> {
-        let rep = self
-            .x11
-            .conn
-            .get_property(false, w, atom, AtomEnum::ATOM, 0, 32)
-            .unwrap()
-            .reply()
-            .map_err(|e| {
-                warn!("Failed to get reply from getting the window type of window {w}: {e}")
-            })
-            .ok()?;
-
-        if rep.format != 32 {
-            return None;
-        }
-
-        Some(rep.value32().unwrap().collect())
-    }
-
-    fn get_strut_partial(&self, w: WindowId, atom: Atom) -> Option<[u32; 12]> {
-        let rep = self
-            .x11
-            .conn
-            .get_property(false, w, atom, AtomEnum::CARDINAL, 0, 12)
-            .map_err(|e| {
-                warn!("Failed to get _NET_WM_STRUT_PARTIAL property: {e}");
-            })
-            .ok()?
-            .reply()
-            .map_err(|e| {
-                warn!(
-                    "Failed to get _NET_WM_STRUT_PARTIAL property reply from the x11 server: {e}"
-                );
-            })
-            .ok()?;
-
-        let values = rep.value32()?.collect::<Vec<_>>();
-
-        if values.len() < 12 {
-            return None;
-        }
-
-        let mut arr = [0u32; 12];
-
-        arr.copy_from_slice(&values[..12]);
-        Some(arr)
     }
 
     fn get_reserved_space(&self) -> Reserve {
@@ -660,38 +327,21 @@ impl Nwm {
                 Event::MappingNotify(_) => {}
                 Event::ConfigureRequest(_) => self.layout(),
                 Event::ClientMessage(e) => {
-                    if let Some(sa) = self.state_atom
-                        && let Some(fsa) = self.fullscreen_state_atom
-                    {
-                        if e.type_ == sa {
-                            let (action, first, second) = (
-                                e.data.as_data32()[0],
-                                e.data.as_data32()[1],
-                                e.data.as_data32()[2],
-                            );
-                            if first == fsa || second == fsa {
-                                match action {
-                                    0 => {
-                                        self.unset_fullscreen();
-                                    }
-                                    1 => {
-                                        self.set_fullscreen(e.window);
-                                    }
-                                    2 => {
-                                        dbg!("toggle_fs");
-                                    }
-                                    _ => {}
-                                }
+                    if let Some(state) = self.ewmh.get_fullscreen_msg(e) {
+                        match state {
+                            ewmh::FullscreenMessage::EnableFullscreen => {
+                                self.set_fullscreen(e.window);
                             }
+                            ewmh::FullscreenMessage::DisableFullscreen => {
+                                self.unset_fullscreen();
+                            }
+                            ewmh::FullscreenMessage::ToggleFullscreen => {}
                         }
                     }
                 }
                 Event::PropertyNotify(e) => {
-                    if let Some(spa) = self.strut_partial_atom
-                        && e.atom == spa
-                        && let Some(strut) = self.get_strut_partial(e.window, spa)
-                    {
-                        self.struts.insert(e.window, Strut::from(strut));
+                    if let Some(strut) = self.ewmh.get_strut(&mut self.x11, e.window) {
+                        self.struts.insert(e.window, strut);
                         self.layout();
                     }
                 }
@@ -777,28 +427,14 @@ impl Nwm {
             self.x11.map_window(*w);
         }
 
-        if let Some(ada) = self.active_desktop_atom {
-            _ = self
-                .x11
-                .conn
-                .change_property32(
-                    PropMode::REPLACE,
-                    self.x11.root_window(),
-                    ada,
-                    AtomEnum::CARDINAL,
-                    &[(new_ws) as u32],
-                )
-                .map_err(|e| {
-                    warn!("Failed to set _NET_ACTIVE_DESKTOP: {e}");
-                });
-        }
+        self.ewmh.switch_active_desktop(&mut self.x11, new_ws);
 
         self.layout();
         self.focus_on_pointer();
     }
 
     fn tiled_window_rects(&self) -> Vec<(WindowId, Rect)> {
-        let layout = &self.layouts[self.curr_layout];
+        let layout = self.layout_man.get_current_layout();
 
         let ctx = self.make_layout_ctx();
         layout.arrange(&ctx)
@@ -812,40 +448,16 @@ impl Nwm {
         vs
     }
 
-    fn window_is_dock(&self, w: WindowId) -> bool {
-        if let Some(wta) = self.window_type_atom
-            && let Some(wtda) = self.window_type_dock_atom
-            && let Some(types) = self.get_window_type(w, wta)
-            && types.contains(&wtda)
-        {
-            return true;
-        }
-        false
-    }
-
-    fn window_is_normal(&self, w: WindowId) -> bool {
-        if let Some(wta) = self.window_type_atom
-            && let Some(wtna) = self.window_type_normal_atom
-            && let Some(types) = self.get_window_type(w, wta)
-            && types.contains(&wtna)
-        {
-            return true;
-        }
-        false
-    }
-
     fn add_window(&mut self, event: MapRequestEvent) {
         self.x11.map_window(event.window);
-        if let Some(spa) = self.strut_partial_atom
-            && let Some(strut) = self.get_strut_partial(event.window, spa)
-        {
-            self.struts.insert(event.window, Strut::from(strut));
+        if let Some(strut) = self.ewmh.get_strut(&mut self.x11, event.window) {
+            self.struts.insert(event.window, strut);
             self.layout();
         }
-        if self.window_is_dock(event.window) {
+        if self.ewmh.window_is_dock(&mut self.x11, event.window) {
             return;
         }
-        if self.window_is_normal(event.window) {
+        if self.ewmh.window_is_normal(&mut self.x11, event.window) {
             _ = self
                 .x11
                 .conn
@@ -932,14 +544,14 @@ impl Nwm {
             screen_height: self.x11.screen_size().1,
             gap: self.gap,
             reserved: self.get_reserved_space(),
-            master_ratio: self.master_ratio
+            master_ratio: self.master_ratio,
         }
     }
 
     fn swap_left(&mut self) {
         self.suppress_cursor_focus = true;
         if let Some(current) = self.curr_ws().get_focused_id() {
-            let layout = &self.layouts[self.curr_layout];
+            let layout = self.layout_man.get_current_layout();
             let ctx = self.make_layout_ctx();
 
             if let Some(new_order) = layout.swap(&ctx, current, layout::Direction::Left) {
@@ -954,7 +566,7 @@ impl Nwm {
     fn swap_right(&mut self) {
         self.suppress_cursor_focus = true;
         if let Some(current) = self.curr_ws().get_focused_id() {
-            let layout = &self.layouts[self.curr_layout];
+            let layout = self.layout_man.get_current_layout();
             let ctx = self.make_layout_ctx();
 
             if let Some(new_order) = layout.swap(&ctx, current, layout::Direction::Right) {
@@ -969,7 +581,7 @@ impl Nwm {
     fn swap_up(&mut self) {
         self.suppress_cursor_focus = true;
         if let Some(current) = self.curr_ws().get_focused_id() {
-            let layout = &self.layouts[self.curr_layout];
+            let layout = self.layout_man.get_current_layout();
             let ctx = self.make_layout_ctx();
 
             if let Some(new_order) = layout.swap(&ctx, current, layout::Direction::Up) {
@@ -984,7 +596,7 @@ impl Nwm {
     fn swap_down(&mut self) {
         self.suppress_cursor_focus = true;
         if let Some(current) = self.curr_ws().get_focused_id() {
-            let layout = &self.layouts[self.curr_layout];
+            let layout = self.layout_man.get_current_layout();
             let ctx = self.make_layout_ctx();
 
             if let Some(new_order) = layout.swap(&ctx, current, layout::Direction::Down) {
@@ -1018,7 +630,7 @@ impl Nwm {
 
     fn focus_left(&mut self) {
         if let Some(f_id) = self.curr_ws().get_focused_id() {
-            let layout = &self.layouts[self.curr_layout];
+            let layout = self.layout_man.get_current_layout();
             let ctx = self.make_layout_ctx();
 
             if let Some(next) = layout.focus_next(&ctx, f_id, layout::Direction::Left) {
@@ -1030,7 +642,7 @@ impl Nwm {
 
     fn focus_right(&mut self) {
         if let Some(f_id) = self.curr_ws().get_focused_id() {
-            let layout = &self.layouts[self.curr_layout];
+            let layout = self.layout_man.get_current_layout();
             let ctx = self.make_layout_ctx();
 
             if let Some(next) = layout.focus_next(&ctx, f_id, layout::Direction::Right) {
@@ -1042,7 +654,7 @@ impl Nwm {
 
     fn focus_up(&mut self) {
         if let Some(f_id) = self.curr_ws().get_focused_id() {
-            let layout = &self.layouts[self.curr_layout];
+            let layout = self.layout_man.get_current_layout();
             let ctx = self.make_layout_ctx();
 
             if let Some(next) = layout.focus_next(&ctx, f_id, layout::Direction::Up) {
@@ -1054,7 +666,7 @@ impl Nwm {
 
     fn focus_down(&mut self) {
         if let Some(f_id) = self.curr_ws().get_focused_id() {
-            let layout = &self.layouts[self.curr_layout];
+            let layout = self.layout_man.get_current_layout();
             let ctx = self.make_layout_ctx();
 
             if let Some(next) = layout.focus_next(&ctx, f_id, layout::Direction::Down) {
@@ -1072,27 +684,10 @@ impl Nwm {
         let rects = self.tiled_window_rects();
 
         for (w, r) in rects.iter() {
-            if self.window_is_dock(*w)
-                && let Some(spa) = self.strut_partial_atom
-                && let Some(strut) = self.get_strut_partial(*w, spa)
+            if self.ewmh.window_is_dock(&mut self.x11, *w)
+                && let Some(strut) = self.ewmh.get_strut(&mut self.x11, *w)
             {
-                self.struts.insert(
-                    *w,
-                    Strut {
-                        left: strut[0],
-                        right: strut[1],
-                        top: strut[2],
-                        bottom: strut[3],
-                        left_start_y: strut[4],
-                        left_end_y: strut[5],
-                        right_start_y: strut[6],
-                        right_end_y: strut[7],
-                        top_start_x: strut[8],
-                        top_end_x: strut[9],
-                        bottom_start_x: strut[10],
-                        bottom_end_x: strut[11],
-                    },
-                );
+                self.struts.insert(*w, strut);
                 continue;
             }
             self.x11.move_window(*w, r.x, r.y);
@@ -1123,4 +718,175 @@ fn main() -> Result<(), ()> {
         }
     }
     Ok(())
+}
+
+#[derive(Debug, Clone)]
+struct Bind {
+    action: fn(&mut Nwm),
+    bind: lua_cfg::KeyCombo,
+}
+
+fn keycombo_mask(kc: &lua_cfg::KeyCombo) -> u16 {
+    let mut mask = 0;
+    for m in &kc.prefixes {
+        mask |= match m {
+            lua_cfg::SpecialKey::Shift => ModMask::SHIFT,
+            lua_cfg::SpecialKey::Control => ModMask::CONTROL,
+            lua_cfg::SpecialKey::Alt => ModMask::M1,
+            lua_cfg::SpecialKey::Super => ModMask::M4,
+        };
+    }
+    mask
+}
+
+impl Bind {
+    fn try_do(&self, nwm: &mut Nwm, ev: KeyPressEvent) {
+        let want_keycode = nwm.x11.key_to_keycode(self.bind.key.into_x11rb());
+
+        if ev.detail as u32 != want_keycode {
+            return;
+        }
+
+        let want_mask = keycombo_mask(&self.bind);
+        let actual_mask = ev.state & !(ModMask::M2 | ModMask::LOCK).bits();
+
+        if actual_mask.bits() != want_mask {
+            return;
+        }
+
+        (self.action)(nwm);
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct Rect {
+    x: i16,
+    y: i16,
+    w: i16,
+    h: i16,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct Reserve {
+    x0: u32,
+    y0: u32,
+    x1: u32,
+    y1: u32,
+}
+
+use x11rb::protocol::{
+    Event,
+    xproto::{
+        ChangeWindowAttributesAux, ConfigureWindowAux, ConnectionExt, EventMask, KeyPressEvent,
+        MapRequestEvent, ModMask, UnmapNotifyEvent,
+    },
+};
+
+fn action_to_fn(action: lua_cfg::Action) -> fn(&mut Nwm) {
+    match action {
+        lua_cfg::Action::FocusLeft => Nwm::focus_left,
+        lua_cfg::Action::FocusRight => Nwm::focus_right,
+        lua_cfg::Action::MoveLeft => Nwm::swap_left,
+        lua_cfg::Action::MoveRight => Nwm::swap_right,
+
+        lua_cfg::Action::FocusUp => Nwm::focus_up,
+        lua_cfg::Action::FocusDown => Nwm::focus_down,
+
+        lua_cfg::Action::MoveUp => Nwm::swap_up,
+        lua_cfg::Action::MoveDown => Nwm::swap_down,
+
+        lua_cfg::Action::Launcher => Nwm::launcher,
+        lua_cfg::Action::Terminal => Nwm::terminal,
+        lua_cfg::Action::CloseWindow => Nwm::close_focused,
+        lua_cfg::Action::NextWs => Nwm::focus_next_ws,
+        lua_cfg::Action::PrevWs => Nwm::focus_prev_ws,
+        lua_cfg::Action::ReloadConfig => Nwm::reload_config,
+        lua_cfg::Action::Ws0 => |nwm: &mut Nwm| {
+            nwm.switch_ws(0);
+        },
+        lua_cfg::Action::Ws1 => |nwm: &mut Nwm| {
+            nwm.switch_ws(1);
+        },
+        lua_cfg::Action::Ws2 => |nwm: &mut Nwm| {
+            nwm.switch_ws(2);
+        },
+        lua_cfg::Action::Ws3 => |nwm: &mut Nwm| {
+            nwm.switch_ws(3);
+        },
+        lua_cfg::Action::Ws4 => |nwm: &mut Nwm| {
+            nwm.switch_ws(4);
+        },
+        lua_cfg::Action::Ws5 => |nwm: &mut Nwm| {
+            nwm.switch_ws(5);
+        },
+        lua_cfg::Action::Ws6 => |nwm: &mut Nwm| {
+            nwm.switch_ws(6);
+        },
+        lua_cfg::Action::Ws7 => |nwm: &mut Nwm| {
+            nwm.switch_ws(7);
+        },
+        lua_cfg::Action::Ws8 => |nwm: &mut Nwm| {
+            nwm.switch_ws(8);
+        },
+        lua_cfg::Action::Ws9 => |nwm: &mut Nwm| {
+            nwm.switch_ws(9);
+        },
+        lua_cfg::Action::MoveToWs0 => |nwm: &mut Nwm| {
+            nwm.move_focused_to_ws(0);
+        },
+        lua_cfg::Action::MoveToWs1 => |nwm: &mut Nwm| {
+            nwm.move_focused_to_ws(1);
+        },
+        lua_cfg::Action::MoveToWs2 => |nwm: &mut Nwm| {
+            nwm.move_focused_to_ws(2);
+        },
+        lua_cfg::Action::MoveToWs3 => |nwm: &mut Nwm| {
+            nwm.move_focused_to_ws(3);
+        },
+        lua_cfg::Action::MoveToWs4 => |nwm: &mut Nwm| {
+            nwm.move_focused_to_ws(4);
+        },
+        lua_cfg::Action::MoveToWs5 => |nwm: &mut Nwm| {
+            nwm.move_focused_to_ws(5);
+        },
+        lua_cfg::Action::MoveToWs6 => |nwm: &mut Nwm| {
+            nwm.move_focused_to_ws(6);
+        },
+        lua_cfg::Action::MoveToWs7 => |nwm: &mut Nwm| {
+            nwm.move_focused_to_ws(7);
+        },
+        lua_cfg::Action::MoveToWs8 => |nwm: &mut Nwm| {
+            nwm.move_focused_to_ws(8);
+        },
+        lua_cfg::Action::MoveToWs9 => |nwm: &mut Nwm| {
+            nwm.move_focused_to_ws(9);
+        },
+        lua_cfg::Action::Quit => |nwm: &mut Nwm| {
+            nwm.running = false;
+        },
+        lua_cfg::Action::NextLayout => |nwm: &mut Nwm| {
+            nwm.layout_man.next_layout();
+            nwm.layout();
+        },
+        lua_cfg::Action::PrevLayout => |nwm: &mut Nwm| {
+            nwm.layout_man.prev_layout();
+            nwm.layout();
+        },
+        lua_cfg::Action::GapUp => |nwm: &mut Nwm| {
+            nwm.gap += 1;
+            nwm.layout();
+        },
+        lua_cfg::Action::GapDown => |nwm: &mut Nwm| {
+            nwm.gap = nwm.gap.saturating_sub(1);
+            nwm.layout();
+        },
+        lua_cfg::Action::MasterRatioDown => |nwm: &mut Nwm| {
+            nwm.master_ratio = (nwm.master_ratio - 0.1).clamp(0.1, 0.9);
+            nwm.layout();
+        },
+        lua_cfg::Action::MasterRatioUp => |nwm: &mut Nwm| {
+            nwm.master_ratio = (nwm.master_ratio + 0.1).clamp(0.1, 0.9);
+            nwm.layout();
+        },
+    }
 }

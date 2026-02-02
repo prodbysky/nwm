@@ -1,3 +1,4 @@
+/// Log handler for the nwlog tool
 use colored::Colorize;
 use log::Level;
 use std::io::Write;
