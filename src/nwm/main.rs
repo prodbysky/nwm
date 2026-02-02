@@ -37,9 +37,9 @@ struct Nwm {
     active_border_color: u32,
     inactive_border_color: u32,
     suppress_cursor_focus: bool,
-    layouts: Vec<Box<dyn layout::Layout>>,
-    curr_layout: usize,
+    layout_man: layout::LayoutManager,
 }
+
 
 #[allow(dead_code)]
 struct Strut {
@@ -225,16 +225,11 @@ fn action_to_fn(action: lua_cfg::Action) -> fn(&mut Nwm) {
             nwm.running = false;
         },
         lua_cfg::Action::NextLayout => |nwm: &mut Nwm| {
-            nwm.curr_layout = (nwm.curr_layout + 1) % nwm.layouts.len();
+            nwm.layout_man.next_layout();
             nwm.layout();
         },
         lua_cfg::Action::PrevLayout => |nwm: &mut Nwm| {
-            match nwm.curr_layout {
-                0 => nwm.curr_layout = nwm.layouts.len() - 1,
-                _ => {
-                    nwm.curr_layout = nwm.curr_layout - 1;
-                }
-            };
+            nwm.layout_man.prev_layout();
             nwm.layout();
         },
         lua_cfg::Action::GapUp => |nwm: &mut Nwm| {
@@ -434,12 +429,6 @@ impl Nwm {
                 });
         }
 
-        let layouts: Vec<Box<dyn layout::Layout>> = vec![
-            Box::new(layout::HorizontalTiling),
-            Box::new(layout::VerticalTiling),
-            Box::new(layout::MasterLayout),
-        ];
-
         Some(Self {
             x11: x11_ab,
             workspaces: Default::default(),
@@ -464,8 +453,7 @@ impl Nwm {
             inactive_border_color: inactive,
             border_width: width,
             suppress_cursor_focus: false,
-            layouts,
-            curr_layout: 0,
+            layout_man: layout::LayoutManager::default(),
             master_ratio
         })
     }
@@ -798,7 +786,7 @@ impl Nwm {
     }
 
     fn tiled_window_rects(&self) -> Vec<(WindowId, Rect)> {
-        let layout = &self.layouts[self.curr_layout];
+        let layout = self.layout_man.get_current_layout();
 
         let ctx = self.make_layout_ctx();
         layout.arrange(&ctx)
@@ -939,7 +927,7 @@ impl Nwm {
     fn swap_left(&mut self) {
         self.suppress_cursor_focus = true;
         if let Some(current) = self.curr_ws().get_focused_id() {
-            let layout = &self.layouts[self.curr_layout];
+            let layout = self.layout_man.get_current_layout();
             let ctx = self.make_layout_ctx();
 
             if let Some(new_order) = layout.swap(&ctx, current, layout::Direction::Left) {
@@ -954,7 +942,7 @@ impl Nwm {
     fn swap_right(&mut self) {
         self.suppress_cursor_focus = true;
         if let Some(current) = self.curr_ws().get_focused_id() {
-            let layout = &self.layouts[self.curr_layout];
+            let layout = self.layout_man.get_current_layout();
             let ctx = self.make_layout_ctx();
 
             if let Some(new_order) = layout.swap(&ctx, current, layout::Direction::Right) {
@@ -969,7 +957,7 @@ impl Nwm {
     fn swap_up(&mut self) {
         self.suppress_cursor_focus = true;
         if let Some(current) = self.curr_ws().get_focused_id() {
-            let layout = &self.layouts[self.curr_layout];
+            let layout = self.layout_man.get_current_layout();
             let ctx = self.make_layout_ctx();
 
             if let Some(new_order) = layout.swap(&ctx, current, layout::Direction::Up) {
@@ -984,7 +972,7 @@ impl Nwm {
     fn swap_down(&mut self) {
         self.suppress_cursor_focus = true;
         if let Some(current) = self.curr_ws().get_focused_id() {
-            let layout = &self.layouts[self.curr_layout];
+            let layout = self.layout_man.get_current_layout();
             let ctx = self.make_layout_ctx();
 
             if let Some(new_order) = layout.swap(&ctx, current, layout::Direction::Down) {
@@ -1018,7 +1006,7 @@ impl Nwm {
 
     fn focus_left(&mut self) {
         if let Some(f_id) = self.curr_ws().get_focused_id() {
-            let layout = &self.layouts[self.curr_layout];
+            let layout = self.layout_man.get_current_layout();
             let ctx = self.make_layout_ctx();
 
             if let Some(next) = layout.focus_next(&ctx, f_id, layout::Direction::Left) {
@@ -1030,7 +1018,7 @@ impl Nwm {
 
     fn focus_right(&mut self) {
         if let Some(f_id) = self.curr_ws().get_focused_id() {
-            let layout = &self.layouts[self.curr_layout];
+            let layout = self.layout_man.get_current_layout();
             let ctx = self.make_layout_ctx();
 
             if let Some(next) = layout.focus_next(&ctx, f_id, layout::Direction::Right) {
@@ -1042,7 +1030,7 @@ impl Nwm {
 
     fn focus_up(&mut self) {
         if let Some(f_id) = self.curr_ws().get_focused_id() {
-            let layout = &self.layouts[self.curr_layout];
+            let layout = self.layout_man.get_current_layout();
             let ctx = self.make_layout_ctx();
 
             if let Some(next) = layout.focus_next(&ctx, f_id, layout::Direction::Up) {
@@ -1054,7 +1042,7 @@ impl Nwm {
 
     fn focus_down(&mut self) {
         if let Some(f_id) = self.curr_ws().get_focused_id() {
-            let layout = &self.layouts[self.curr_layout];
+            let layout = self.layout_man.get_current_layout();
             let ctx = self.make_layout_ctx();
 
             if let Some(next) = layout.focus_next(&ctx, f_id, layout::Direction::Down) {

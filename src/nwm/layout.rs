@@ -1,5 +1,40 @@
 use crate::{Rect, Reserve, WindowId};
 
+pub struct LayoutManager {
+    layouts: Vec<Box<dyn Layout>>,
+    curr_layout: usize,
+}
+
+impl LayoutManager {
+    pub fn default() -> Self {
+        Self {
+            curr_layout: 0,
+            layouts: vec![
+                Box::new(HorizontalTiling),
+                Box::new(VerticalTiling),
+                Box::new(MasterLayout),
+            ]
+        }
+    }
+
+    pub fn get_current_layout(&self) -> &Box<dyn Layout> {
+        &self.layouts[self.curr_layout]
+    }
+
+    pub fn next_layout(&mut self) {
+        self.curr_layout = (self.curr_layout + 1) % self.layouts.len();
+    }
+
+    pub fn prev_layout(&mut self) {
+        match self.curr_layout {
+            0 => self.curr_layout = self.layouts.len() - 1,
+            _ => {
+                self.curr_layout = self.curr_layout - 1;
+            }
+        };
+    }
+}
+
 pub trait Layout {
     /// Move and rearrange windows
     fn arrange(&self, ctx: &LayoutContext) -> Vec<(WindowId, Rect)>;
@@ -348,3 +383,4 @@ impl Layout for MasterLayout {
         }
     }
 }
+
