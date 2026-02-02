@@ -4,6 +4,7 @@ mod lua_cfg;
 mod multi_log;
 mod nw_log_connection;
 mod workspace;
+mod ewmh;
 
 use std::{collections::HashMap, process::Command};
 
@@ -19,14 +20,8 @@ struct Nwm {
     running: bool,
     last_x: i16,
     last_y: i16,
-    window_type_atom: Option<Atom>,
-    window_type_normal_atom: Option<Atom>,
-    window_type_dock_atom: Option<Atom>,
-    strut_partial_atom: Option<Atom>,
-    active_desktop_atom: Option<Atom>,
-    state_atom: Option<Atom>,
-    fullscreen_state_atom: Option<Atom>,
-    struts: HashMap<WindowId, Strut>,
+    ewmh: ewmh::Ewmh,
+    struts: HashMap<WindowId, ewmh::Strut>,
 
     gap: u8,
     master_ratio: f32,
@@ -40,42 +35,6 @@ struct Nwm {
     layout_man: layout::LayoutManager,
 }
 
-
-#[allow(dead_code)]
-struct Strut {
-    left: u32,
-    right: u32,
-    top: u32,
-    bottom: u32,
-
-    left_start_y: u32,
-    left_end_y: u32,
-    right_start_y: u32,
-    right_end_y: u32,
-    top_start_x: u32,
-    top_end_x: u32,
-    bottom_start_x: u32,
-    bottom_end_x: u32,
-}
-
-impl From<[u32; 12]> for Strut {
-    fn from(value: [u32; 12]) -> Self {
-        Strut {
-            left: value[0],
-            right: value[1],
-            top: value[2],
-            bottom: value[3],
-            left_start_y: value[4],
-            left_end_y: value[5],
-            right_start_y: value[6],
-            right_end_y: value[7],
-            top_start_x: value[8],
-            top_end_x: value[9],
-            bottom_start_x: value[10],
-            bottom_end_x: value[11],
-        }
-    }
-}
 
 #[derive(Debug, Clone)]
 struct Bind {
@@ -135,8 +94,7 @@ use x11rb::{
     protocol::{
         Event,
         xproto::{
-            Atom, AtomEnum, ChangeWindowAttributesAux, ConfigureWindowAux, ConnectionExt,
-            EventMask, KeyPressEvent, MapRequestEvent, ModMask, PropMode, UnmapNotifyEvent,
+            Atom, AtomEnum, ChangeWindowAttributesAux, ClientMessageEvent, ConfigureWindowAux, ConnectionExt, EventMask, KeyPressEvent, MapRequestEvent, ModMask, PropMode, UnmapNotifyEvent
         },
     },
     wrapper::ConnectionExt as OtherConnExt,
@@ -375,59 +333,8 @@ impl Nwm {
             warn!("Terminal wasn't set to a program");
         }
 
-        let window_type_atom = x11_ab.intern_atom(b"_NET_WM_WINDOW_TYPE");
-        if window_type_atom.is_none() {
-            warn!("Failed to intern _NET_WM_WINDOW_TYPE, emwh window type support is not present");
-        }
-        let window_type_dock_atom = x11_ab.intern_atom(b"_NET_WM_WINDOW_TYPE_DOCK");
-
-        if window_type_dock_atom.is_none() {
-            warn!(
-                "Failed to intern _NET_WM_WINDOW_TYPE_DOCK, emwh window type support is not present"
-            );
-        }
-
-        let window_type_normal_atom = x11_ab.intern_atom(b"_NET_WM_WINDOW_TYPE_NORMAL");
-        if window_type_normal_atom.is_none() {
-            warn!(
-                "Failed to intern _NET_WM_WINDOW_TYPE_NORMAL, emwh window type support is not present"
-            );
-        }
-        let strut_partial_atom = x11_ab.intern_atom(b"_NET_WM_STRUT_PARTIAL");
-        if strut_partial_atom.is_none() {
-            warn!(
-                "Failed to intern _NET_WM_STRUT_PARTIAL, docks that depend on this won't resize other windows"
-            );
-        }
-
-        let fullscreen_state_atom = x11_ab.intern_atom(b"_NET_WM_STATE_FULLSCREEN");
-        if fullscreen_state_atom.is_none() {
-            warn!(
-                "Failed to intern _NET_WM_STATE_FULLSCREEN, fullscreen state will not be handled"
-            );
-        }
-
-        let state_atom = x11_ab.intern_atom(b"_NET_WM_STATE");
-        if state_atom.is_none() {
-            warn!("Failed to intern _NET_WM_STATE, fullscreen state will not be handled");
-        }
-        use x11rb::wrapper::ConnectionExt;
-
-        let active_desktop_atom = x11_ab.intern_atom(b"_NET_CURRENT_DESKTOP");
-        if let Some(at) = active_desktop_atom {
-            _ = x11_ab
-                .conn
-                .change_property32(
-                    PropMode::REPLACE,
-                    x11_ab.root_window(),
-                    at,
-                    AtomEnum::CARDINAL,
-                    &[10],
-                )
-                .map_err(|e| {
-                    warn!("Failed to set _NET_CURRENT_DESKTOP: {e}");
-                });
-        }
+        let mut ewmh = ewmh::Ewmh::new(&mut x11_ab);
+        ewmh.switch_active_desktop(&mut x11_ab, 0);
 
         Some(Self {
             x11: x11_ab,
@@ -440,13 +347,6 @@ impl Nwm {
             binds,
             launcher,
             terminal,
-            window_type_atom,
-            window_type_dock_atom,
-            strut_partial_atom,
-            active_desktop_atom,
-            window_type_normal_atom,
-            state_atom,
-            fullscreen_state_atom,
             struts: HashMap::new(),
             last_focused: None,
             active_border_color: active,
@@ -454,7 +354,8 @@ impl Nwm {
             border_width: width,
             suppress_cursor_focus: false,
             layout_man: layout::LayoutManager::default(),
-            master_ratio
+            master_ratio,
+            ewmh
         })
     }
     fn refocus_and_warp(&mut self, id: WindowId) {
@@ -481,54 +382,6 @@ impl Nwm {
         }
 
         self.set_focus(id);
-    }
-
-    fn get_window_type(&self, w: WindowId, atom: Atom) -> Option<Vec<Atom>> {
-        let rep = self
-            .x11
-            .conn
-            .get_property(false, w, atom, AtomEnum::ATOM, 0, 32)
-            .unwrap()
-            .reply()
-            .map_err(|e| {
-                warn!("Failed to get reply from getting the window type of window {w}: {e}")
-            })
-            .ok()?;
-
-        if rep.format != 32 {
-            return None;
-        }
-
-        Some(rep.value32().unwrap().collect())
-    }
-
-    fn get_strut_partial(&self, w: WindowId, atom: Atom) -> Option<[u32; 12]> {
-        let rep = self
-            .x11
-            .conn
-            .get_property(false, w, atom, AtomEnum::CARDINAL, 0, 12)
-            .map_err(|e| {
-                warn!("Failed to get _NET_WM_STRUT_PARTIAL property: {e}");
-            })
-            .ok()?
-            .reply()
-            .map_err(|e| {
-                warn!(
-                    "Failed to get _NET_WM_STRUT_PARTIAL property reply from the x11 server: {e}"
-                );
-            })
-            .ok()?;
-
-        let values = rep.value32()?.collect::<Vec<_>>();
-
-        if values.len() < 12 {
-            return None;
-        }
-
-        let mut arr = [0u32; 12];
-
-        arr.copy_from_slice(&values[..12]);
-        Some(arr)
     }
 
     fn get_reserved_space(&self) -> Reserve {
@@ -648,38 +501,22 @@ impl Nwm {
                 Event::MappingNotify(_) => {}
                 Event::ConfigureRequest(_) => self.layout(),
                 Event::ClientMessage(e) => {
-                    if let Some(sa) = self.state_atom
-                        && let Some(fsa) = self.fullscreen_state_atom
-                    {
-                        if e.type_ == sa {
-                            let (action, first, second) = (
-                                e.data.as_data32()[0],
-                                e.data.as_data32()[1],
-                                e.data.as_data32()[2],
-                            );
-                            if first == fsa || second == fsa {
-                                match action {
-                                    0 => {
-                                        self.unset_fullscreen();
-                                    }
-                                    1 => {
-                                        self.set_fullscreen(e.window);
-                                    }
-                                    2 => {
-                                        dbg!("toggle_fs");
-                                    }
-                                    _ => {}
-                                }
+                    if let Some(state) = self.ewmh.get_fullscreen_msg(e) {
+                        match state {
+                            ewmh::FullscreenMessage::EnableFullscreen => {
+                                self.unset_fullscreen();
+                            }
+                            ewmh::FullscreenMessage::DisableFullscreen => {
+                                self.set_fullscreen(e.window);
+                            }
+                            ewmh::FullscreenMessage::ToggleFullscreen => {
                             }
                         }
                     }
                 }
                 Event::PropertyNotify(e) => {
-                    if let Some(spa) = self.strut_partial_atom
-                        && e.atom == spa
-                        && let Some(strut) = self.get_strut_partial(e.window, spa)
-                    {
-                        self.struts.insert(e.window, Strut::from(strut));
+                    if let Some(strut) = self.ewmh.get_strut(&mut self.x11, e.window) {
+                        self.struts.insert(e.window, strut);
                         self.layout();
                     }
                 }
@@ -765,21 +602,7 @@ impl Nwm {
             self.x11.map_window(*w);
         }
 
-        if let Some(ada) = self.active_desktop_atom {
-            _ = self
-                .x11
-                .conn
-                .change_property32(
-                    PropMode::REPLACE,
-                    self.x11.root_window(),
-                    ada,
-                    AtomEnum::CARDINAL,
-                    &[(new_ws) as u32],
-                )
-                .map_err(|e| {
-                    warn!("Failed to set _NET_ACTIVE_DESKTOP: {e}");
-                });
-        }
+        self.ewmh.switch_active_desktop(&mut self.x11, new_ws);
 
         self.layout();
         self.focus_on_pointer();
@@ -800,40 +623,16 @@ impl Nwm {
         vs
     }
 
-    fn window_is_dock(&self, w: WindowId) -> bool {
-        if let Some(wta) = self.window_type_atom
-            && let Some(wtda) = self.window_type_dock_atom
-            && let Some(types) = self.get_window_type(w, wta)
-            && types.contains(&wtda)
-        {
-            return true;
-        }
-        false
-    }
-
-    fn window_is_normal(&self, w: WindowId) -> bool {
-        if let Some(wta) = self.window_type_atom
-            && let Some(wtna) = self.window_type_normal_atom
-            && let Some(types) = self.get_window_type(w, wta)
-            && types.contains(&wtna)
-        {
-            return true;
-        }
-        false
-    }
-
     fn add_window(&mut self, event: MapRequestEvent) {
         self.x11.map_window(event.window);
-        if let Some(spa) = self.strut_partial_atom
-            && let Some(strut) = self.get_strut_partial(event.window, spa)
-        {
-            self.struts.insert(event.window, Strut::from(strut));
+        if let Some(strut) = self.ewmh.get_strut(&mut self.x11, event.window) {
+            self.struts.insert(event.window, strut);
             self.layout();
         }
-        if self.window_is_dock(event.window) {
+        if self.ewmh.window_is_dock(&mut self.x11, event.window) {
             return;
         }
-        if self.window_is_normal(event.window) {
+        if self.ewmh.window_is_normal(&mut self.x11, event.window) {
             _ = self
                 .x11
                 .conn
@@ -1060,26 +859,11 @@ impl Nwm {
         let rects = self.tiled_window_rects();
 
         for (w, r) in rects.iter() {
-            if self.window_is_dock(*w)
-                && let Some(spa) = self.strut_partial_atom
-                && let Some(strut) = self.get_strut_partial(*w, spa)
-            {
+            if self.ewmh.window_is_dock(&mut self.x11, *w) &&
+                let Some(strut) = self.ewmh.get_strut(&mut self.x11, *w) {
                 self.struts.insert(
                     *w,
-                    Strut {
-                        left: strut[0],
-                        right: strut[1],
-                        top: strut[2],
-                        bottom: strut[3],
-                        left_start_y: strut[4],
-                        left_end_y: strut[5],
-                        right_start_y: strut[6],
-                        right_end_y: strut[7],
-                        top_start_x: strut[8],
-                        top_end_x: strut[9],
-                        bottom_start_x: strut[10],
-                        bottom_end_x: strut[11],
-                    },
+                    strut,
                 );
                 continue;
             }
