@@ -330,10 +330,10 @@ impl Nwm {
                     if let Some(state) = self.ewmh.get_fullscreen_msg(e) {
                         match state {
                             ewmh::FullscreenMessage::EnableFullscreen => {
-                                self.unset_fullscreen();
+                                self.set_fullscreen(e.window);
                             }
                             ewmh::FullscreenMessage::DisableFullscreen => {
-                                self.set_fullscreen(e.window);
+                                self.unset_fullscreen();
                             }
                             ewmh::FullscreenMessage::ToggleFullscreen => {}
                         }

@@ -115,8 +115,7 @@ impl Ewmh {
     pub fn window_type(&self, x11rb: &mut better_x11rb::X11RB, w: WindowId) -> Option<Vec<u32>> {
         let rep = x11rb
             .conn
-            .get_property(false, w, self.window_type_atom?, AtomEnum::ATOM, 0, 32)
-            .unwrap()
+            .get_property(false, w, self.window_type_atom?, AtomEnum::ATOM, 0, 32).ok()?
             .reply()
             .map_err(|e| {
                 warn!("Failed to get reply from getting the window type of window {w}: {e}")
