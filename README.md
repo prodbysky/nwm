@@ -125,6 +125,40 @@ Brief explanation of each one:
  - `nwm.set.border_active_color()`       - Sets the border color for the focused window, takes a string in this format: "#RRGGBB"
  - `nwm.set.border_inactive_color()`     - Sets the border color for the not focused windows, takes a string in this format: "#RRGGBB"
 
+## Available layout kinds
+ - The one NWM had from it's start, its the horizontal layout, nothing to write home about it just splits windows vertically.
+┌──────┬──────┬──────┐
+│(1)   │(2)   │(3)   │
+│      │      │      │
+│      │      │      │
+│      │      │      │
+└──────┴──────┴──────┘ (Graphic design is my passion)
+- Another one is the vertical layout, splits the windows horizontally
+┌───────────────────────────────┐
+│(1)                            │
+│                               │
+├───────────────────────────────┤
+│(2)                            │
+│                               │
+├───────────────────────────────┤
+│(3)                            │
+│                               │
+└───────────────────────────────┘ (Again, graphic design is my passion)
+- And the last one (so far) is probably the most useful of them all is the master stack layout.
+Basically it keeps one **master** window which takes up **master_ratio**% (50% by default) of the width of the screen.
+The remainder of the screen gets given to the children windows, spliting horizontally
+┌───────────────┬───────────────┐
+│(1)            │(2)            │
+│               │               │
+│               ├───────────────┤
+│               │(3)            │
+│               │               │
+│               ├───────────────┤
+│               │(4)            │
+│               │               │
+└───────────────┴───────────────┘ (Once again, my graphic design "skills" prevail)
+
+
 
 ## Contribution / issue reporting
 If you want to contribute, fork the repository, do not make changes on the master branch
