@@ -1,5 +1,6 @@
 use crate::WindowId;
 use std::collections::HashMap;
+
 #[derive(Debug, Copy, Clone, Default)]
 pub struct Geometry {
     pub x: i16,

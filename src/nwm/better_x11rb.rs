@@ -1,3 +1,4 @@
+/// This is a general abstraction over x11rb for my convenience
 use std::collections::HashMap;
 
 use log::{error, warn};
@@ -25,6 +26,8 @@ pub struct X11RB {
 }
 
 impl X11RB {
+    /// Opens the x11 connection and setups event masks, connects to the display of the name
+    /// $DISPLAY
     pub fn init() -> Option<Self> {
         let (conn, screen_number) = x11rb::connect(None)
             .map_err(|e| {
@@ -302,7 +305,6 @@ impl X11RB {
 }
 pub const XK_BACKSPACE: u32 = 0xff08;
 pub const XK_RETURN: u32 = 0xff0d;
-// pub const XK_RETURN:    u32 = 0x24;
 pub const XK_ESCAPE: u32 = 0xff1b;
 pub const XK_TAB: u32 = 0xff09;
 pub const XK_SPACE: u32 = 0x0020;

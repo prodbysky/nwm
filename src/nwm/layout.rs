@@ -1,3 +1,4 @@
+/// All of NWM layout logic is stuffed into here
 use crate::{Rect, Reserve, WindowId};
 
 pub struct LayoutManager {

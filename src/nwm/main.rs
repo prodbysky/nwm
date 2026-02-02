@@ -35,177 +35,6 @@ struct Nwm {
     layout_man: layout::LayoutManager,
 }
 
-#[derive(Debug, Clone)]
-struct Bind {
-    action: fn(&mut Nwm),
-    bind: lua_cfg::KeyCombo,
-}
-
-fn keycombo_mask(kc: &lua_cfg::KeyCombo) -> u16 {
-    let mut mask = 0;
-    for m in &kc.prefixes {
-        mask |= match m {
-            lua_cfg::SpecialKey::Shift => ModMask::SHIFT,
-            lua_cfg::SpecialKey::Control => ModMask::CONTROL,
-            lua_cfg::SpecialKey::Alt => ModMask::M1,
-            lua_cfg::SpecialKey::Super => ModMask::M4,
-        };
-    }
-    mask
-}
-
-impl Bind {
-    fn try_do(&self, nwm: &mut Nwm, ev: KeyPressEvent) {
-        let want_keycode = nwm.x11.key_to_keycode(self.bind.key.into_x11rb());
-
-        if ev.detail as u32 != want_keycode {
-            return;
-        }
-
-        let want_mask = keycombo_mask(&self.bind);
-        let actual_mask = ev.state & !(ModMask::M2 | ModMask::LOCK).bits();
-
-        if actual_mask.bits() != want_mask {
-            return;
-        }
-
-        (self.action)(nwm);
-    }
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-struct Rect {
-    x: i16,
-    y: i16,
-    w: i16,
-    h: i16,
-}
-
-#[derive(Debug, Clone, Copy, Default)]
-struct Reserve {
-    x0: u32,
-    y0: u32,
-    x1: u32,
-    y1: u32,
-}
-
-use x11rb::protocol::{
-    Event,
-    xproto::{
-        ChangeWindowAttributesAux, ConfigureWindowAux, ConnectionExt, EventMask, KeyPressEvent,
-        MapRequestEvent, ModMask, UnmapNotifyEvent,
-    },
-};
-
-fn action_to_fn(action: lua_cfg::Action) -> fn(&mut Nwm) {
-    match action {
-        lua_cfg::Action::FocusLeft => Nwm::focus_left,
-        lua_cfg::Action::FocusRight => Nwm::focus_right,
-        lua_cfg::Action::MoveLeft => Nwm::swap_left,
-        lua_cfg::Action::MoveRight => Nwm::swap_right,
-
-        lua_cfg::Action::FocusUp => Nwm::focus_up,
-        lua_cfg::Action::FocusDown => Nwm::focus_down,
-
-        lua_cfg::Action::MoveUp => Nwm::swap_up,
-        lua_cfg::Action::MoveDown => Nwm::swap_down,
-
-        lua_cfg::Action::Launcher => Nwm::launcher,
-        lua_cfg::Action::Terminal => Nwm::terminal,
-        lua_cfg::Action::CloseWindow => Nwm::close_focused,
-        lua_cfg::Action::NextWs => Nwm::focus_next_ws,
-        lua_cfg::Action::PrevWs => Nwm::focus_prev_ws,
-        lua_cfg::Action::ReloadConfig => Nwm::reload_config,
-        lua_cfg::Action::Ws0 => |nwm: &mut Nwm| {
-            nwm.switch_ws(0);
-        },
-        lua_cfg::Action::Ws1 => |nwm: &mut Nwm| {
-            nwm.switch_ws(1);
-        },
-        lua_cfg::Action::Ws2 => |nwm: &mut Nwm| {
-            nwm.switch_ws(2);
-        },
-        lua_cfg::Action::Ws3 => |nwm: &mut Nwm| {
-            nwm.switch_ws(3);
-        },
-        lua_cfg::Action::Ws4 => |nwm: &mut Nwm| {
-            nwm.switch_ws(4);
-        },
-        lua_cfg::Action::Ws5 => |nwm: &mut Nwm| {
-            nwm.switch_ws(5);
-        },
-        lua_cfg::Action::Ws6 => |nwm: &mut Nwm| {
-            nwm.switch_ws(6);
-        },
-        lua_cfg::Action::Ws7 => |nwm: &mut Nwm| {
-            nwm.switch_ws(7);
-        },
-        lua_cfg::Action::Ws8 => |nwm: &mut Nwm| {
-            nwm.switch_ws(8);
-        },
-        lua_cfg::Action::Ws9 => |nwm: &mut Nwm| {
-            nwm.switch_ws(9);
-        },
-        lua_cfg::Action::MoveToWs0 => |nwm: &mut Nwm| {
-            nwm.move_focused_to_ws(0);
-        },
-        lua_cfg::Action::MoveToWs1 => |nwm: &mut Nwm| {
-            nwm.move_focused_to_ws(1);
-        },
-        lua_cfg::Action::MoveToWs2 => |nwm: &mut Nwm| {
-            nwm.move_focused_to_ws(2);
-        },
-        lua_cfg::Action::MoveToWs3 => |nwm: &mut Nwm| {
-            nwm.move_focused_to_ws(3);
-        },
-        lua_cfg::Action::MoveToWs4 => |nwm: &mut Nwm| {
-            nwm.move_focused_to_ws(4);
-        },
-        lua_cfg::Action::MoveToWs5 => |nwm: &mut Nwm| {
-            nwm.move_focused_to_ws(5);
-        },
-        lua_cfg::Action::MoveToWs6 => |nwm: &mut Nwm| {
-            nwm.move_focused_to_ws(6);
-        },
-        lua_cfg::Action::MoveToWs7 => |nwm: &mut Nwm| {
-            nwm.move_focused_to_ws(7);
-        },
-        lua_cfg::Action::MoveToWs8 => |nwm: &mut Nwm| {
-            nwm.move_focused_to_ws(8);
-        },
-        lua_cfg::Action::MoveToWs9 => |nwm: &mut Nwm| {
-            nwm.move_focused_to_ws(9);
-        },
-        lua_cfg::Action::Quit => |nwm: &mut Nwm| {
-            nwm.running = false;
-        },
-        lua_cfg::Action::NextLayout => |nwm: &mut Nwm| {
-            nwm.layout_man.next_layout();
-            nwm.layout();
-        },
-        lua_cfg::Action::PrevLayout => |nwm: &mut Nwm| {
-            nwm.layout_man.prev_layout();
-            nwm.layout();
-        },
-        lua_cfg::Action::GapUp => |nwm: &mut Nwm| {
-            nwm.gap += 1;
-            nwm.layout();
-        },
-        lua_cfg::Action::GapDown => |nwm: &mut Nwm| {
-            nwm.gap = nwm.gap.saturating_sub(1);
-            nwm.layout();
-        },
-        lua_cfg::Action::MasterRatioDown => |nwm: &mut Nwm| {
-            nwm.master_ratio = (nwm.master_ratio - 0.1).clamp(0.1, 0.9);
-            nwm.layout();
-        },
-        lua_cfg::Action::MasterRatioUp => |nwm: &mut Nwm| {
-            nwm.master_ratio = (nwm.master_ratio + 0.1).clamp(0.1, 0.9);
-            nwm.layout();
-        },
-    }
-}
-
 impl Nwm {
     fn apply_lua_config(
         conf: lua_cfg::Config,
@@ -889,4 +718,175 @@ fn main() -> Result<(), ()> {
         }
     }
     Ok(())
+}
+
+#[derive(Debug, Clone)]
+struct Bind {
+    action: fn(&mut Nwm),
+    bind: lua_cfg::KeyCombo,
+}
+
+fn keycombo_mask(kc: &lua_cfg::KeyCombo) -> u16 {
+    let mut mask = 0;
+    for m in &kc.prefixes {
+        mask |= match m {
+            lua_cfg::SpecialKey::Shift => ModMask::SHIFT,
+            lua_cfg::SpecialKey::Control => ModMask::CONTROL,
+            lua_cfg::SpecialKey::Alt => ModMask::M1,
+            lua_cfg::SpecialKey::Super => ModMask::M4,
+        };
+    }
+    mask
+}
+
+impl Bind {
+    fn try_do(&self, nwm: &mut Nwm, ev: KeyPressEvent) {
+        let want_keycode = nwm.x11.key_to_keycode(self.bind.key.into_x11rb());
+
+        if ev.detail as u32 != want_keycode {
+            return;
+        }
+
+        let want_mask = keycombo_mask(&self.bind);
+        let actual_mask = ev.state & !(ModMask::M2 | ModMask::LOCK).bits();
+
+        if actual_mask.bits() != want_mask {
+            return;
+        }
+
+        (self.action)(nwm);
+    }
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct Rect {
+    x: i16,
+    y: i16,
+    w: i16,
+    h: i16,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct Reserve {
+    x0: u32,
+    y0: u32,
+    x1: u32,
+    y1: u32,
+}
+
+use x11rb::protocol::{
+    Event,
+    xproto::{
+        ChangeWindowAttributesAux, ConfigureWindowAux, ConnectionExt, EventMask, KeyPressEvent,
+        MapRequestEvent, ModMask, UnmapNotifyEvent,
+    },
+};
+
+fn action_to_fn(action: lua_cfg::Action) -> fn(&mut Nwm) {
+    match action {
+        lua_cfg::Action::FocusLeft => Nwm::focus_left,
+        lua_cfg::Action::FocusRight => Nwm::focus_right,
+        lua_cfg::Action::MoveLeft => Nwm::swap_left,
+        lua_cfg::Action::MoveRight => Nwm::swap_right,
+
+        lua_cfg::Action::FocusUp => Nwm::focus_up,
+        lua_cfg::Action::FocusDown => Nwm::focus_down,
+
+        lua_cfg::Action::MoveUp => Nwm::swap_up,
+        lua_cfg::Action::MoveDown => Nwm::swap_down,
+
+        lua_cfg::Action::Launcher => Nwm::launcher,
+        lua_cfg::Action::Terminal => Nwm::terminal,
+        lua_cfg::Action::CloseWindow => Nwm::close_focused,
+        lua_cfg::Action::NextWs => Nwm::focus_next_ws,
+        lua_cfg::Action::PrevWs => Nwm::focus_prev_ws,
+        lua_cfg::Action::ReloadConfig => Nwm::reload_config,
+        lua_cfg::Action::Ws0 => |nwm: &mut Nwm| {
+            nwm.switch_ws(0);
+        },
+        lua_cfg::Action::Ws1 => |nwm: &mut Nwm| {
+            nwm.switch_ws(1);
+        },
+        lua_cfg::Action::Ws2 => |nwm: &mut Nwm| {
+            nwm.switch_ws(2);
+        },
+        lua_cfg::Action::Ws3 => |nwm: &mut Nwm| {
+            nwm.switch_ws(3);
+        },
+        lua_cfg::Action::Ws4 => |nwm: &mut Nwm| {
+            nwm.switch_ws(4);
+        },
+        lua_cfg::Action::Ws5 => |nwm: &mut Nwm| {
+            nwm.switch_ws(5);
+        },
+        lua_cfg::Action::Ws6 => |nwm: &mut Nwm| {
+            nwm.switch_ws(6);
+        },
+        lua_cfg::Action::Ws7 => |nwm: &mut Nwm| {
+            nwm.switch_ws(7);
+        },
+        lua_cfg::Action::Ws8 => |nwm: &mut Nwm| {
+            nwm.switch_ws(8);
+        },
+        lua_cfg::Action::Ws9 => |nwm: &mut Nwm| {
+            nwm.switch_ws(9);
+        },
+        lua_cfg::Action::MoveToWs0 => |nwm: &mut Nwm| {
+            nwm.move_focused_to_ws(0);
+        },
+        lua_cfg::Action::MoveToWs1 => |nwm: &mut Nwm| {
+            nwm.move_focused_to_ws(1);
+        },
+        lua_cfg::Action::MoveToWs2 => |nwm: &mut Nwm| {
+            nwm.move_focused_to_ws(2);
+        },
+        lua_cfg::Action::MoveToWs3 => |nwm: &mut Nwm| {
+            nwm.move_focused_to_ws(3);
+        },
+        lua_cfg::Action::MoveToWs4 => |nwm: &mut Nwm| {
+            nwm.move_focused_to_ws(4);
+        },
+        lua_cfg::Action::MoveToWs5 => |nwm: &mut Nwm| {
+            nwm.move_focused_to_ws(5);
+        },
+        lua_cfg::Action::MoveToWs6 => |nwm: &mut Nwm| {
+            nwm.move_focused_to_ws(6);
+        },
+        lua_cfg::Action::MoveToWs7 => |nwm: &mut Nwm| {
+            nwm.move_focused_to_ws(7);
+        },
+        lua_cfg::Action::MoveToWs8 => |nwm: &mut Nwm| {
+            nwm.move_focused_to_ws(8);
+        },
+        lua_cfg::Action::MoveToWs9 => |nwm: &mut Nwm| {
+            nwm.move_focused_to_ws(9);
+        },
+        lua_cfg::Action::Quit => |nwm: &mut Nwm| {
+            nwm.running = false;
+        },
+        lua_cfg::Action::NextLayout => |nwm: &mut Nwm| {
+            nwm.layout_man.next_layout();
+            nwm.layout();
+        },
+        lua_cfg::Action::PrevLayout => |nwm: &mut Nwm| {
+            nwm.layout_man.prev_layout();
+            nwm.layout();
+        },
+        lua_cfg::Action::GapUp => |nwm: &mut Nwm| {
+            nwm.gap += 1;
+            nwm.layout();
+        },
+        lua_cfg::Action::GapDown => |nwm: &mut Nwm| {
+            nwm.gap = nwm.gap.saturating_sub(1);
+            nwm.layout();
+        },
+        lua_cfg::Action::MasterRatioDown => |nwm: &mut Nwm| {
+            nwm.master_ratio = (nwm.master_ratio - 0.1).clamp(0.1, 0.9);
+            nwm.layout();
+        },
+        lua_cfg::Action::MasterRatioUp => |nwm: &mut Nwm| {
+            nwm.master_ratio = (nwm.master_ratio + 0.1).clamp(0.1, 0.9);
+            nwm.layout();
+        },
+    }
 }

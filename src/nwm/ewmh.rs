@@ -1,3 +1,5 @@
+/// EMWH/ICCCM state manager
+/// Ideally all the things to do with getting/setting atoms will be done here
 use crate::WindowId;
 use crate::better_x11rb;
 use log::warn;
@@ -19,6 +21,8 @@ pub struct Ewmh {
 }
 
 impl Ewmh {
+    /// Interns atoms that are needed for nwm functionality
+    /// (fullscreen, docks, current active desktop)
     pub fn new(x11_ab: &mut better_x11rb::X11RB) -> Self {
         let window_type_atom = x11_ab.intern_atom(b"_NET_WM_WINDOW_TYPE");
         if window_type_atom.is_none() {
@@ -178,6 +182,8 @@ impl Ewmh {
         Some(Strut::from(arr))
     }
 
+    /// Called when a x11rb::Event::ClientMessageEvent is sent to check for fullscreen state.
+    /// That being said it can be more than this but I'm willing to ignore that for some time
     pub fn get_fullscreen_msg(&mut self, e: ClientMessageEvent) -> Option<FullscreenMessage> {
         if let Some(sa) = self.state_atom
             && let Some(fsa) = self.fullscreen_state_atom
