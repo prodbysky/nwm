@@ -1,10 +1,10 @@
 mod better_x11rb;
+mod ewmh;
 mod layout;
 mod lua_cfg;
 mod multi_log;
 mod nw_log_connection;
 mod workspace;
-mod ewmh;
 
 use std::{collections::HashMap, process::Command};
 
@@ -34,7 +34,6 @@ struct Nwm {
     suppress_cursor_focus: bool,
     layout_man: layout::LayoutManager,
 }
-
 
 #[derive(Debug, Clone)]
 struct Bind {
@@ -90,14 +89,12 @@ struct Reserve {
     y1: u32,
 }
 
-use x11rb::{
-    protocol::{
-        Event,
-        xproto::{
-            Atom, AtomEnum, ChangeWindowAttributesAux, ClientMessageEvent, ConfigureWindowAux, ConnectionExt, EventMask, KeyPressEvent, MapRequestEvent, ModMask, PropMode, UnmapNotifyEvent
-        },
+use x11rb::protocol::{
+    Event,
+    xproto::{
+        ChangeWindowAttributesAux, ConfigureWindowAux, ConnectionExt, EventMask, KeyPressEvent,
+        MapRequestEvent, ModMask, UnmapNotifyEvent,
     },
-    wrapper::ConnectionExt as OtherConnExt,
 };
 
 fn action_to_fn(action: lua_cfg::Action) -> fn(&mut Nwm) {
@@ -247,7 +244,7 @@ impl Nwm {
             settings.border_active_color,
             settings.border_inactive_color,
             settings.border_width as u8,
-            settings.master_ratio
+            settings.master_ratio,
         )
     }
 
@@ -355,7 +352,7 @@ impl Nwm {
             suppress_cursor_focus: false,
             layout_man: layout::LayoutManager::default(),
             master_ratio,
-            ewmh
+            ewmh,
         })
     }
     fn refocus_and_warp(&mut self, id: WindowId) {
@@ -509,8 +506,7 @@ impl Nwm {
                             ewmh::FullscreenMessage::DisableFullscreen => {
                                 self.set_fullscreen(e.window);
                             }
-                            ewmh::FullscreenMessage::ToggleFullscreen => {
-                            }
+                            ewmh::FullscreenMessage::ToggleFullscreen => {}
                         }
                     }
                 }
@@ -719,7 +715,7 @@ impl Nwm {
             screen_height: self.x11.screen_size().1,
             gap: self.gap,
             reserved: self.get_reserved_space(),
-            master_ratio: self.master_ratio
+            master_ratio: self.master_ratio,
         }
     }
 
@@ -859,12 +855,10 @@ impl Nwm {
         let rects = self.tiled_window_rects();
 
         for (w, r) in rects.iter() {
-            if self.ewmh.window_is_dock(&mut self.x11, *w) &&
-                let Some(strut) = self.ewmh.get_strut(&mut self.x11, *w) {
-                self.struts.insert(
-                    *w,
-                    strut,
-                );
+            if self.ewmh.window_is_dock(&mut self.x11, *w)
+                && let Some(strut) = self.ewmh.get_strut(&mut self.x11, *w)
+            {
+                self.struts.insert(*w, strut);
                 continue;
             }
             self.x11.move_window(*w, r.x, r.y);

@@ -1,9 +1,12 @@
-use crate::better_x11rb;
 use crate::WindowId;
+use crate::better_x11rb;
 use log::warn;
 use x11rb::protocol::xproto::ClientMessageEvent;
 use x11rb::protocol::xproto::ConnectionExt as OtherExt;
-use x11rb::{protocol::xproto::{Atom, AtomEnum, PropMode}, wrapper::ConnectionExt};
+use x11rb::{
+    protocol::xproto::{Atom, AtomEnum, PropMode},
+    wrapper::ConnectionExt,
+};
 
 pub struct Ewmh {
     window_type_atom: Option<Atom>,
@@ -85,8 +88,10 @@ impl Ewmh {
         if self.window_type_dock_atom.is_none() {
             return false;
         }
-        if let Some(types) = self.window_type(x11rb, w) && types.contains(&self.window_type_dock_atom.unwrap()) {
-            return true
+        if let Some(types) = self.window_type(x11rb, w)
+            && types.contains(&self.window_type_dock_atom.unwrap())
+        {
+            return true;
         }
         false
     }
@@ -95,15 +100,16 @@ impl Ewmh {
         if self.window_type_normal_atom.is_none() {
             return false;
         }
-        if let Some(types) = self.window_type(x11rb, w) && types.contains(&self.window_type_normal_atom.unwrap()) {
-            return true
+        if let Some(types) = self.window_type(x11rb, w)
+            && types.contains(&self.window_type_normal_atom.unwrap())
+        {
+            return true;
         }
         false
     }
 
     pub fn window_type(&self, x11rb: &mut better_x11rb::X11RB, w: WindowId) -> Option<Vec<u32>> {
-        let rep = 
-            x11rb
+        let rep = x11rb
             .conn
             .get_property(false, w, self.window_type_atom?, AtomEnum::ATOM, 0, 32)
             .unwrap()
@@ -140,7 +146,14 @@ impl Ewmh {
     pub fn get_strut(&mut self, x11rb: &mut better_x11rb::X11RB, w: WindowId) -> Option<Strut> {
         let rep = x11rb
             .conn
-            .get_property(false, w, self.strut_partial_atom?, AtomEnum::CARDINAL, 0, 12)
+            .get_property(
+                false,
+                w,
+                self.strut_partial_atom?,
+                AtomEnum::CARDINAL,
+                0,
+                12,
+            )
             .map_err(|e| {
                 warn!("Failed to get _NET_WM_STRUT_PARTIAL property: {e}");
             })
@@ -186,14 +199,15 @@ impl Ewmh {
                         2 => {
                             return Some(FullscreenMessage::ToggleFullscreen);
                         }
-                        _ => {return None;}
+                        _ => {
+                            return None;
+                        }
                     }
                 }
             }
         }
         None
     }
-    
 }
 
 pub enum AtomKind {
@@ -201,12 +215,12 @@ pub enum AtomKind {
     StrutPartial,
     ActiveDesktop,
     State,
-    FullscreenState
+    FullscreenState,
 }
 
 pub enum WindowType {
     Normal,
-    Dock
+    Dock,
 }
 
 pub enum FullscreenMessage {
@@ -214,7 +228,6 @@ pub enum FullscreenMessage {
     EnableFullscreen,
     ToggleFullscreen,
 }
-
 
 #[allow(dead_code)]
 pub struct Strut {

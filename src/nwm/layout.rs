@@ -13,7 +13,7 @@ impl LayoutManager {
                 Box::new(HorizontalTiling),
                 Box::new(VerticalTiling),
                 Box::new(MasterLayout),
-            ]
+            ],
         }
     }
 
@@ -64,7 +64,7 @@ pub struct LayoutContext<'a> {
     pub screen_height: u16,
     pub gap: u8,
     pub reserved: Reserve,
-    pub master_ratio: f32
+    pub master_ratio: f32,
 }
 
 pub struct HorizontalTiling;
@@ -383,4 +383,3 @@ impl Layout for MasterLayout {
         }
     }
 }
-
