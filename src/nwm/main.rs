@@ -18,11 +18,12 @@ struct Nwm {
     curr_workspace: usize,
     last_focused: Option<WindowId>,
     running: bool,
+    /// Cursor X
     last_x: i16,
+    /// Cursor Y
     last_y: i16,
     ewmh: ewmh::Ewmh,
     struts: HashMap<WindowId, ewmh::Strut>,
-
     gap: u8,
     master_ratio: f32,
     binds: Vec<Bind>,
@@ -36,6 +37,9 @@ struct Nwm {
 }
 
 impl Nwm {
+    /// "Applies" the lua config in `~/.config/nwm/config.lua`, by returning some values that
+    /// probably need to be factored out to a struct, which I'm not doing right now since I'm just
+    /// writing docs
     fn apply_lua_config(
         conf: lua_cfg::Config,
         x11: &mut better_x11rb::X11RB,
@@ -77,6 +81,8 @@ impl Nwm {
         )
     }
 
+    /// If a focused window for the current workspace exists moves it to the specified workspace
+    /// number
     fn move_focused_to_ws(&mut self, ws: usize) {
         if let Some(id) = self.curr_ws().get_focused_id() {
             if self.curr_ws_mut().is_floating(id) {
@@ -91,6 +97,9 @@ impl Nwm {
         }
     }
 
+    /// Reloads the lua config with `nwm.first_boot` being false
+    /// so that the users startup programs don't run multiple times
+    /// if the user is experimenting with their config
     fn reload_config(&mut self) {
         let conf = match lua_cfg::load_config(true) {
             Ok(c) => c,
@@ -126,6 +135,7 @@ impl Nwm {
         info!("Reloaded lua config");
     }
 
+    /// Initializes nwm, ewmh controller, loads the lua config, inits loggers
     pub fn create(display_name: &str) -> Option<Self> {
         let file = std::fs::OpenOptions::new()
             .append(true)
@@ -184,6 +194,8 @@ impl Nwm {
             ewmh,
         })
     }
+
+    /// Focuses to the specified window `id` and warps the cursor to its center
     fn refocus_and_warp(&mut self, id: WindowId) {
         if let Some((_, r)) = self
             .tiled_window_rects()
@@ -210,6 +222,8 @@ impl Nwm {
         self.set_focus(id);
     }
 
+    /// Goes through all struts that were collected and returns the max of their requested size
+    /// Used for layouting
     fn get_reserved_space(&self) -> Reserve {
         let mut p = Reserve::default();
 
@@ -223,10 +237,14 @@ impl Nwm {
         p
     }
 
+    /// Switches to the workspace (current workspace - 1)
+    /// NOTE: Does not wrap around
     fn focus_next_ws(&mut self) {
         self.switch_ws((self.curr_workspace + 1).clamp(0, 9));
     }
 
+    /// Switches to the workspace (current workspace - 1)
+    /// NOTE: Does not wrap around
     fn focus_prev_ws(&mut self) {
         if self.curr_workspace == 0 {
             return;
@@ -234,29 +252,36 @@ impl Nwm {
         self.switch_ws((self.curr_workspace - 1).clamp(0, 9));
     }
 
+    /// Returns the focused window in the current workspace
     fn focused(&self) -> Option<WindowId> {
         self.workspaces[self.curr_workspace].get_focused_id()
     }
 
+    /// If a focused window exists closes it
     fn close_focused(&mut self) {
         if let Some(w) = self.focused() {
             self.close_window(w);
         }
     }
 
+    /// Sends a request to x11 to close a window identified by `id`
     fn close_window(&mut self, id: WindowId) {
         self.x11.close_window(id);
         // self.curr_ws_mut().remove_window(id);
     }
 
+    /// Returns a exclusive reference to the currently active workspace
     fn curr_ws_mut(&mut self) -> &mut workspace::Workspace {
         &mut self.workspaces[self.curr_workspace]
     }
 
+    /// Returns a shared reference to the currently active workspace
     fn curr_ws(&self) -> &workspace::Workspace {
         &self.workspaces[self.curr_workspace]
     }
 
+    /// Unmaps all windows that are not the one that requested to be fullscreened
+    /// after that moves the fullscreened window to 0x0 and makes it take up the whole screen
     fn set_fullscreen(&mut self, id: WindowId) {
         self.curr_ws_mut().set_fullscreen_id(Some(id));
         for w in self.curr_ws().windows().iter().filter(|w_id| **w_id != id) {
@@ -267,6 +292,9 @@ impl Nwm {
         self.x11.resize_window(id, sw as u32, sh as u32);
     }
 
+    /// Maps all windows that were (hopefully) previously hidden by fullscreening a window
+    /// and maps them, after that the layout method is called, and finally the fullscreened ID is
+    /// cleared
     fn unset_fullscreen(&mut self) {
         if let Some(id) = self.curr_ws().get_fullscreen_id() {
             for w in self.curr_ws().windows().iter().filter(|w_id| **w_id != id) {
@@ -277,6 +305,7 @@ impl Nwm {
         self.curr_ws_mut().set_fullscreen_id(None);
     }
 
+    /// Starts up the window manager :)
     pub fn run(mut self) {
         info!("Keybindings were setup");
 
@@ -358,6 +387,8 @@ impl Nwm {
         }
     }
 
+    /// Finds which window does the cursor overlaps, by first checking the floating windows and then
+    /// if not a single floating window overlaps with the cursor checks the tiled ones
     fn focus_on_pointer(&mut self) {
         let rects = self.floating_window_rects();
 
@@ -402,6 +433,8 @@ impl Nwm {
             });
     }
 
+    /// Switches workspaces by first unmapping (hiding) windows from the current workspace
+    /// and maps (pops up) all windows from the new workspace
     fn switch_ws(&mut self, new_ws: usize) {
         if new_ws >= self.workspaces.len() || new_ws == self.curr_workspace {
             return;
@@ -433,6 +466,7 @@ impl Nwm {
         self.focus_on_pointer();
     }
 
+    /// Returns all tiled windows in the current workspace along with their IDs
     fn tiled_window_rects(&self) -> Vec<(WindowId, Rect)> {
         let layout = self.layout_man.get_current_layout();
 
@@ -440,6 +474,7 @@ impl Nwm {
         layout.arrange(&ctx)
     }
 
+    /// Returns all floating windows in the current workspace along with their IDs
     fn floating_window_rects(&self) -> Vec<(WindowId, Rect)> {
         let mut vs = vec![];
         for (id, &workspace::Geometry { x, y, w, h }) in self.curr_ws().floating_windows() {
@@ -448,6 +483,8 @@ impl Nwm {
         vs
     }
 
+    /// Adds the window from `event` 
+    /// TODO: This function **NEEDS** refactoring
     fn add_window(&mut self, event: MapRequestEvent) {
         self.x11.map_window(event.window);
         if let Some(strut) = self.ewmh.get_strut(&mut self.x11, event.window) {
@@ -531,12 +568,14 @@ impl Nwm {
         }
     }
 
+    /// Removes the window from all registries, essentially forgetting it
     fn remove_window(&mut self, event: UnmapNotifyEvent) {
         self.struts.remove(&event.window);
         self.curr_ws_mut().remove_window(event.window);
         self.layout();
     }
 
+    /// Helper function to create a layout context for the layout to use
     fn make_layout_ctx(&self) -> layout::LayoutContext<'_> {
         layout::LayoutContext {
             windows: self.curr_ws().windows(),
@@ -548,6 +587,8 @@ impl Nwm {
         }
     }
 
+    /// Tries to move the currently active window to be in the place of the window to the left, of course
+    /// if the active layout allows that to happen
     fn swap_left(&mut self) {
         self.suppress_cursor_focus = true;
         if let Some(current) = self.curr_ws().get_focused_id() {
@@ -563,6 +604,8 @@ impl Nwm {
         self.suppress_cursor_focus = false;
     }
 
+    /// Tries to move the currently active window to be in the place of the window to the right, of course
+    /// if the active layout allows that to happen
     fn swap_right(&mut self) {
         self.suppress_cursor_focus = true;
         if let Some(current) = self.curr_ws().get_focused_id() {
@@ -578,6 +621,8 @@ impl Nwm {
         self.suppress_cursor_focus = false;
     }
 
+    /// Tries to move the currently active window to be in the place of the window above, of course
+    /// if the active layout allows that to happen
     fn swap_up(&mut self) {
         self.suppress_cursor_focus = true;
         if let Some(current) = self.curr_ws().get_focused_id() {
@@ -593,6 +638,8 @@ impl Nwm {
         self.suppress_cursor_focus = false;
     }
 
+    /// Tries to move the currently active window to be in the place of the window below, of course
+    /// if the active layout allows that to happen
     fn swap_down(&mut self) {
         self.suppress_cursor_focus = true;
         if let Some(current) = self.curr_ws().get_focused_id() {
@@ -608,6 +655,8 @@ impl Nwm {
         self.suppress_cursor_focus = false;
     }
 
+    /// Tries to spawn the user defined commandline in a shell that should be their app launcher
+    /// (dmenu_run, ...)
     fn launcher(&mut self) {
         let _ = Command::new("sh")
             .arg("-c")
@@ -618,6 +667,7 @@ impl Nwm {
             });
     }
 
+    /// Tries to spawn the user defined commandline in a shell that should be their terminal
     fn terminal(&mut self) {
         let _ = Command::new("sh")
             .arg("-c")
@@ -628,6 +678,7 @@ impl Nwm {
             });
     }
 
+    /// Tries to focus on the window to the left of the currently active window if possible on the currently active layout
     fn focus_left(&mut self) {
         if let Some(f_id) = self.curr_ws().get_focused_id() {
             let layout = self.layout_man.get_current_layout();
@@ -640,6 +691,7 @@ impl Nwm {
         }
     }
 
+    /// Tries to focus on the window to the right of the currently active window if possible on the currently active layout
     fn focus_right(&mut self) {
         if let Some(f_id) = self.curr_ws().get_focused_id() {
             let layout = self.layout_man.get_current_layout();
@@ -652,6 +704,7 @@ impl Nwm {
         }
     }
 
+    /// Tries to focus on the window above if possible on the currently active layout
     fn focus_up(&mut self) {
         if let Some(f_id) = self.curr_ws().get_focused_id() {
             let layout = self.layout_man.get_current_layout();
@@ -664,6 +717,7 @@ impl Nwm {
         }
     }
 
+    /// Tries to focus on the window below if possible on the currently active layout
     fn focus_down(&mut self) {
         if let Some(f_id) = self.curr_ws().get_focused_id() {
             let layout = self.layout_man.get_current_layout();
@@ -676,6 +730,7 @@ impl Nwm {
         }
     }
 
+    /// According to the current layout moves and resizes windows around
     fn layout(&mut self) {
         if self.curr_ws().empty() {
             return;
@@ -695,6 +750,8 @@ impl Nwm {
         }
     }
 
+    /// Focuses the x11 context to the `id` window ID, sets the last focused windows border to be
+    /// inactive and sets the `id` windows border to be active
     fn set_focus(&mut self, id: WindowId) {
         if let Some(prev) = self.last_focused {
             self.set_window_border_pixel(prev, self.inactive_border_color);
@@ -720,12 +777,16 @@ fn main() -> Result<(), ()> {
     Ok(())
 }
 
+
+/// Every single `nwm.bind` call results in this struct begin created
 #[derive(Debug, Clone)]
 struct Bind {
+    /// Resolved in `crate::action_to_fn``
     action: fn(&mut Nwm),
     bind: lua_cfg::KeyCombo,
 }
 
+/// Combines user set prefixes in `nwm.bind` (that is not including the last key)
 fn keycombo_mask(kc: &lua_cfg::KeyCombo) -> u16 {
     let mut mask = 0;
     for m in &kc.prefixes {
@@ -740,6 +801,7 @@ fn keycombo_mask(kc: &lua_cfg::KeyCombo) -> u16 {
 }
 
 impl Bind {
+    /// Tries to do the keybind set by `nwm.bind` in the users config
     fn try_do(&self, nwm: &mut Nwm, ev: KeyPressEvent) {
         let want_keycode = nwm.x11.key_to_keycode(self.bind.key.into_x11rb());
 
@@ -759,6 +821,7 @@ impl Bind {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
+/// Used for window rectangles (tiled/floating)
 struct Rect {
     x: i16,
     y: i16,
@@ -767,6 +830,7 @@ struct Rect {
 }
 
 #[derive(Debug, Clone, Copy, Default)]
+/// Used for deriving the reserved space by bars (polybar, ...)
 struct Reserve {
     x0: u32,
     y0: u32,
@@ -782,6 +846,8 @@ use x11rb::protocol::{
     },
 };
 
+
+/// Maps `nwm.action<action>` to nwm functions or even lambdas
 fn action_to_fn(action: lua_cfg::Action) -> fn(&mut Nwm) {
     match action {
         lua_cfg::Action::FocusLeft => Nwm::focus_left,

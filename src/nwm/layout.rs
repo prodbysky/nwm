@@ -1,6 +1,7 @@
 /// All of NWM layout logic is stuffed into here
 use crate::{Rect, Reserve, WindowId};
 
+/// Holds and manages the available layouts
 pub struct LayoutManager {
     layouts: Vec<Box<dyn Layout>>,
     curr_layout: usize,
@@ -22,10 +23,12 @@ impl LayoutManager {
         &self.layouts[self.curr_layout]
     }
 
+    /// Switches to the next available layout, wrapping around
     pub fn next_layout(&mut self) {
         self.curr_layout = (self.curr_layout + 1) % self.layouts.len();
     }
 
+    /// Switches to the previous available layout, wrapping around
     pub fn prev_layout(&mut self) {
         match self.curr_layout {
             0 => self.curr_layout = self.layouts.len() - 1,

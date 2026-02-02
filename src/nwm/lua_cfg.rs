@@ -6,6 +6,8 @@ use std::{
 
 use mlua::Lua;
 
+/// Sets up the tables for the users configuration
+/// `nwm.first_boot` will be equal to `!reload`
 pub fn load_config(reload: bool) -> Result<Config, ()> {
     let lua = Lua::new();
 
