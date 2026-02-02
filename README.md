@@ -127,13 +127,18 @@ Brief explanation of each one:
 
 ## Available layout kinds
  - The one NWM had from it's start, its the horizontal layout, nothing to write home about it just splits windows vertically.
+(Graphic design is my passion)
+```text
 ┌──────┬──────┬──────┐
 │(1)   │(2)   │(3)   │
 │      │      │      │
 │      │      │      │
 │      │      │      │
-└──────┴──────┴──────┘ (Graphic design is my passion)
+└──────┴──────┴──────┘ 
+```
 - Another one is the vertical layout, splits the windows horizontally
+(Again, graphic design is my passion)
+```text
 ┌───────────────────────────────┐
 │(1)                            │
 │                               │
@@ -143,10 +148,13 @@ Brief explanation of each one:
 ├───────────────────────────────┤
 │(3)                            │
 │                               │
-└───────────────────────────────┘ (Again, graphic design is my passion)
+└───────────────────────────────┘ 
+```
 - And the last one (so far) is probably the most useful of them all is the master stack layout.
 Basically it keeps one **master** window which takes up **master_ratio**% (50% by default) of the width of the screen.
 The remainder of the screen gets given to the children windows, spliting horizontally
+(Once again, my graphic design "skills" prevail)
+```text
 ┌───────────────┬───────────────┐
 │(1)            │(2)            │
 │               │               │
@@ -156,7 +164,8 @@ The remainder of the screen gets given to the children windows, spliting horizon
 │               ├───────────────┤
 │               │(4)            │
 │               │               │
-└───────────────┴───────────────┘ (Once again, my graphic design "skills" prevail)
+└───────────────┴───────────────┘ 
+```
 
 
 
