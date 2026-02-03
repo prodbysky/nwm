@@ -167,7 +167,82 @@ The remainder of the screen gets given to the children windows, spliting horizon
 └───────────────┴───────────────┘ 
 ```
 
+### Runtime information
+NWM exposes runtime information through the `nwm.info` table. 
+This table is automatically updated as the window manager state changes.
+Available Info Fields:
 
+`nwm.info.version` - NWM version string
+`nwm.info.name` - Package name ("nwm")
+`nwm.info.hostname` - System hostname
+`nwm.info.user` - Current user
+`nwm.info.display` - X11 display (e.g., ":0")
+`nwm.info.workspace_count` - Total number of workspaces (10)
+`nwm.info.current_workspace` - Currently active workspace (0-9)
+`nwm.info.focused_window` - X11 window ID of focused window
+`nwm.info.window_count` - Number of windows on current workspace
+`nwm.info.gap` - Current gap size
+`nwm.info.master_ratio` - Current master layout ratio
+`nwm.info.screen_width` - Screen width in pixels
+`nwm.info.screen_height` - Screen height in pixels
+
+#### Example usage
+```lua
+    -- Print workspace info when switching
+    nwm.bind("d", function()
+        print("Workspace " .. nwm.info.current_workspace .. " has " .. nwm.info.window_count .. " windows")
+    end)
+```
+
+### Lua callbacks
+You can bind Lua functions directly to keybindings 
+instead of only using the built-in `nwm.action` constants.
+
+#### Syntax
+```lua
+    nwm.bind("keybind", function()
+        -- Your Lua code here
+    end)
+```
+
+#### Examples
+ - Print runtime info:
+```lua
+    nwm.bind("d", function()
+        print("Current workspace: " .. nwm.info.current_workspace)
+        print("Windows: " .. nwm.info.window_count)
+    end)
+```
+ - Send notifications
+ ```lua
+    nwm.bind("n", function()
+        local ws = nwm.info.current_workspace
+        local count = nwm.info.window_count
+        os.execute(string.format('notify-send "NWM" "Workspace %d: %d windows"', ws, count))
+    end)
+ ```
+ - Access ENV variables
+ ```lua
+     nwm.bind("v", function()
+        local editor = os.getenv("EDITOR") or "vim" -- Or emacs if you wish :)
+        os.execute(editor .. " ~/notes.txt &")
+    end)
+ ```
+
+#### Advanced examples
+ - Workspace-Specific Commands:
+```lua
+    nwm.bind("t", function()
+        local ws = nwm.info.current_workspace
+        if ws == 0 then
+            os.execute("firefox &")
+        elseif ws == 1 then
+            os.execute("spotify &")
+        else
+            os.execute("alacritty &")
+        end
+    end)
+```
 
 ## Contribution / issue reporting
 If you want to contribute, fork the repository, do not make changes on the master branch
