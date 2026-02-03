@@ -35,6 +35,17 @@ struct Nwm {
     suppress_cursor_focus: bool,
     layout_man: layout::LayoutManager,
     lua: Option<mlua::Lua>,
+    hooks: HashMap<HookEvent, Vec<Hook>>
+}
+
+
+#[derive(Hash, Eq, PartialEq)]
+enum HookEvent {
+    AddWindow
+}
+
+struct Hook {
+    func: mlua::Function
 }
 
 impl Nwm {
@@ -193,6 +204,16 @@ impl Nwm {
             warn!("Terminal wasn't set to a program");
         }
 
+        let mut hooks = HashMap::new();
+        if let Some(ref lua) = lua {
+            hooks.insert(HookEvent::AddWindow, vec![Hook {
+                func: lua.create_function(move|_, _: ()| {
+                    println!("hooks!");
+                    Ok(())
+                }).unwrap()
+            }]);
+        }
+
         let mut ewmh = ewmh::Ewmh::new(&mut x11_ab);
         ewmh.switch_active_desktop(&mut x11_ab, 0);
 
@@ -217,6 +238,7 @@ impl Nwm {
             master_ratio,
             ewmh,
             lua,
+            hooks
         })
     }
 
@@ -350,7 +372,14 @@ impl Nwm {
             };
 
             match event {
-                Event::MapRequest(e) => self.add_window(e),
+                Event::MapRequest(e) => {
+                    if let Some(fun) = &self.hooks.get(&HookEvent::AddWindow) {
+                        for hook in fun.iter() {
+                            hook.func.call::<()>(());
+                        }
+                    }
+                    self.add_window(e)
+                },
                 Event::UnmapNotify(e) => self.remove_window(e),
                 Event::KeyPress(e) => {
                     for b in &self.binds.clone() {
