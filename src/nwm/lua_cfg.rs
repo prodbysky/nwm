@@ -5,6 +5,7 @@ use std::{
 };
 
 use mlua::Lua;
+use mlua::FromLua;
 
 /// Sets up the tables for the users configuration
 /// `nwm.first_boot` will be equal to `!reload`
@@ -72,6 +73,18 @@ pub fn load_config(reload: bool) -> Result<Config, ()> {
             error!("Failed to put `modifiers` table in the `nwm` table: {e}");
         })?;
 
+    // Add runtime info table
+    nwm_table
+        .set(
+            "info",
+            create_info_table(&lua).map_err(|e| {
+                error!("Failed to create `info` table: {e}");
+            })?,
+        )
+        .map_err(|e| {
+            error!("Failed to put `info` table in the `nwm` table: {e}");
+        })?;
+
     nwm_table.set("first_boot", !reload).map_err(|e| {
         error!("Failed to set first_boot global var: {e}");
     })?;
@@ -99,7 +112,31 @@ pub fn load_config(reload: bool) -> Result<Config, ()> {
         }
     }
 
+    // store lua for callbacks
+    config.lua = Some(lua);
+
     Ok(config)
+}
+
+fn create_info_table(lua: &Lua) -> mlua::Result<mlua::Table> {
+    let info_table = lua.create_table()?;
+    
+    info_table.set("version", env!("CARGO_PKG_VERSION"))?;
+    info_table.set("name", env!("CARGO_PKG_NAME"))?;
+    
+    if let Ok(hostname) = std::env::var("HOSTNAME") {
+        info_table.set("hostname", hostname)?;
+    }
+    if let Ok(user) = std::env::var("USER") {
+        info_table.set("user", user)?;
+    }
+    if let Ok(display) = std::env::var("DISPLAY") {
+        info_table.set("display", display)?;
+    }
+    
+    info_table.set("workspace_count", 10)?;
+    
+    Ok(info_table)
 }
 
 fn create_set_api(lua: &Lua, config: Arc<Mutex<Config>>) -> mlua::Result<mlua::Table> {
@@ -251,12 +288,35 @@ fn create_action_data(lua: &Lua) -> mlua::Result<mlua::Table> {
 }
 
 fn create_bind_api(lua: &Lua, config: Arc<Mutex<Config>>) -> mlua::Result<mlua::Function> {
-    let bind = lua.create_function(move |_, (combo, action): (String, Action)| {
+    let bind = lua.create_function(move |lua_ctx, (combo, action): (String, mlua::Value)| {
         let combo = parse_keycombo(&combo)
             .map_err(|_| mlua::Error::RuntimeError("invalid key combo".into()))?;
 
-        config.lock().unwrap().binds.push(Binding { combo, action });
+        let binding = match action {
+            mlua::Value::UserData(_) => {
+                let action: Action = Action::from_lua(action, lua_ctx)?;
+                Binding {
+                    combo,
+                    action: BindAction::Native(action),
+                }
+            }
+            mlua::Value::Function(func) => {
+                let key = lua_ctx.create_registry_value(func)
+                    .map_err(|e| mlua::Error::RuntimeError(format!("Failed to store callback: {}", e)))?;
+                
+                Binding {
+                    combo,
+                    action: BindAction::LuaCallback(LuaCallback { key: Arc::new(key)}),
+                }
+            }
+            _ => {
+                return Err(mlua::Error::RuntimeError(
+                    "action must be either an nwm.action constant or a function".into()
+                ));
+            }
+        };
 
+        config.lock().unwrap().binds.push(binding);
         Ok(())
     })?;
 
@@ -317,10 +377,22 @@ fn parse_keycombo(s: &str) -> Result<KeyCombo, ()> {
     Ok(combo)
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
+pub struct LuaCallback {
+    pub key: Arc<mlua::RegistryKey>,
+}
+
+#[derive(Clone)]
+pub enum BindAction {
+    Native(Action),
+    LuaCallback(LuaCallback),
+}
+
+#[derive(Clone)]
 pub struct Config {
     pub settings: Settings,
     pub binds: Vec<Binding>,
+    pub lua: Option<Lua>,
 }
 
 impl Default for Config {
@@ -329,34 +401,35 @@ impl Default for Config {
             settings: Settings::default(),
             binds: vec![
                 Binding {
-                    action: Action::Terminal,
+                    action: BindAction::Native(Action::Terminal),
                     combo: KeyCombo {
                         prefixes: vec![SpecialKey::Alt],
                         key: Key::Return,
                     },
                 },
                 Binding {
-                    action: Action::Launcher,
+                    action: BindAction::Native(Action::Launcher),
                     combo: KeyCombo {
                         prefixes: vec![SpecialKey::Alt],
                         key: Key::Space,
                     },
                 },
                 Binding {
-                    action: Action::CloseWindow,
+                    action: BindAction::Native(Action::CloseWindow),
                     combo: KeyCombo {
                         prefixes: vec![SpecialKey::Alt],
                         key: Key::Char('w'),
                     },
                 },
                 Binding {
-                    action: Action::Quit,
+                    action: BindAction::Native(Action::Quit),
                     combo: KeyCombo {
                         prefixes: vec![SpecialKey::Alt, SpecialKey::Shift],
                         key: Key::Char('q'),
                     },
                 },
             ],
+            lua: None,
         }
     }
 }
@@ -388,10 +461,10 @@ impl Default for Settings {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone)]
 pub struct Binding {
     pub combo: KeyCombo,
-    pub action: Action,
+    pub action: BindAction,
 }
 
 #[derive(Debug, Clone, Default)]
