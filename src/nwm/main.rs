@@ -34,16 +34,36 @@ struct Nwm {
     inactive_border_color: u32,
     suppress_cursor_focus: bool,
     layout_man: layout::LayoutManager,
+    lua: Option<mlua::Lua>,
 }
 
 impl Nwm {
+    /// Updates runtime info in the Lua context
+    fn update_lua_runtime_info(&self) {
+        if let Some(lua) = &self.lua {
+            if let Ok(nwm_table) = lua.globals().get::<mlua::Table>("nwm") {
+                if let Ok(info_table) = nwm_table.get::<mlua::Table>("info") {
+                    let _ = info_table.set("current_workspace", self.curr_workspace);
+                    let _ = info_table.set("focused_window", self.focused().unwrap_or(0));
+                    let _ = info_table.set("window_count", self.curr_ws().window_count());
+                    let _ = info_table.set("gap", self.gap as usize);
+                    let _ = info_table.set("master_ratio", self.master_ratio);
+                    
+                    let (w, h) = self.x11.screen_size();
+                    let _ = info_table.set("screen_width", w);
+                    let _ = info_table.set("screen_height", h);
+                }
+            }
+        }
+    }
+
     /// "Applies" the lua config in `~/.config/nwm/config.lua`, by returning some values that
     /// probably need to be factored out to a struct, which I'm not doing right now since I'm just
     /// writing docs
     fn apply_lua_config(
         conf: lua_cfg::Config,
         x11: &mut better_x11rb::X11RB,
-    ) -> (u8, Vec<Bind>, String, String, u32, u32, u8, f32) {
+    ) -> (u8, Vec<Bind>, String, String, u32, u32, u8, f32, Option<mlua::Lua>) {
         let settings = conf.settings;
 
         let mut binds = Vec::new();
@@ -64,7 +84,7 @@ impl Nwm {
             x11.grab_key(mask, b.combo.key.into_x11rb());
 
             binds.push(Bind {
-                action: action_to_fn(b.action),
+                action: b.action,
                 bind: b.combo,
             });
         }
@@ -78,6 +98,7 @@ impl Nwm {
             settings.border_inactive_color,
             settings.border_width as u8,
             settings.master_ratio,
+            conf.lua,
         )
     }
 
@@ -95,6 +116,7 @@ impl Nwm {
             self.x11.unmap_window(id);
             self.curr_ws_mut().remove_window(id);
         }
+        self.update_lua_runtime_info();
     }
 
     /// Reloads the lua config with `nwm.first_boot` being false
@@ -111,7 +133,7 @@ impl Nwm {
 
         self.binds.clear();
 
-        let (gap, binds, terminal, launcher, active, inactive, width, master_ratio) =
+        let (gap, binds, terminal, launcher, active, inactive, width, master_ratio, lua) =
             Self::apply_lua_config(conf, &mut self.x11);
 
         self.gap = gap;
@@ -122,6 +144,7 @@ impl Nwm {
         self.inactive_border_color = inactive;
         self.border_width = width;
         self.master_ratio = master_ratio;
+        self.lua = lua;
 
         for ws in self.workspaces.clone() {
             for w in ws.windows() {
@@ -132,6 +155,7 @@ impl Nwm {
             }
         }
 
+        self.update_lua_runtime_info();
         info!("Reloaded lua config");
     }
 
@@ -158,7 +182,7 @@ impl Nwm {
             warn!("Failed to load config on startup using barebones default config");
             lua_cfg::Config::default()
         });
-        let (gap, binds, terminal, launcher, active, inactive, width, master_ratio) =
+        let (gap, binds, terminal, launcher, active, inactive, width, master_ratio, lua) =
             Self::apply_lua_config(conf, &mut x11_ab);
 
         info!("Everything went well in initialization :DD");
@@ -192,6 +216,7 @@ impl Nwm {
             layout_man: layout::LayoutManager::default(),
             master_ratio,
             ewmh,
+            lua,
         })
     }
 
@@ -308,6 +333,7 @@ impl Nwm {
     /// Starts up the window manager :)
     pub fn run(mut self) {
         info!("Keybindings were setup");
+        self.update_lua_runtime_info();
 
         while self.running {
             let event = match self.x11.next_event() {
@@ -464,6 +490,7 @@ impl Nwm {
 
         self.layout();
         self.focus_on_pointer();
+        self.update_lua_runtime_info();
     }
 
     /// Returns all tiled windows in the current workspace along with their IDs
@@ -566,6 +593,7 @@ impl Nwm {
             self.x11.raise_window(event.window);
             self.x11.focus_window(event.window);
         }
+        self.update_lua_runtime_info();
     }
 
     /// Removes the window from all registries, essentially forgetting it
@@ -573,6 +601,7 @@ impl Nwm {
         self.struts.remove(&event.window);
         self.curr_ws_mut().remove_window(event.window);
         self.layout();
+        self.update_lua_runtime_info();
     }
 
     /// Helper function to create a layout context for the layout to use
@@ -762,6 +791,7 @@ impl Nwm {
 
         self.curr_ws_mut().set_focused_id(id);
         self.last_focused = Some(id);
+        self.update_lua_runtime_info();
     }
 }
 
@@ -779,10 +809,10 @@ fn main() -> Result<(), ()> {
 
 
 /// Every single `nwm.bind` call results in this struct begin created
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct Bind {
-    /// Resolved in `crate::action_to_fn``
-    action: fn(&mut Nwm),
+    /// Can be either a native action or a Lua callback
+    action: lua_cfg::BindAction,
     bind: lua_cfg::KeyCombo,
 }
 
@@ -816,7 +846,21 @@ impl Bind {
             return;
         }
 
-        (self.action)(nwm);
+        match &self.action {
+            lua_cfg::BindAction::Native(action) => {
+                let action_fn = action_to_fn(*action);
+                action_fn(nwm);
+            }
+            lua_cfg::BindAction::LuaCallback(callback) => {
+                if let Some(lua) = &nwm.lua {
+                    if let Ok(func) = lua.registry_value::<mlua::Function>(&callback.key) {
+                        if let Err(e) = func.call::<()>(()) {
+                            warn!("Lua callback error: {}", e);
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
