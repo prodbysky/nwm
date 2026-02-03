@@ -1,7 +1,6 @@
 use log::error;
 use std::{
-    env::home_dir,
-    sync::{Arc, Mutex},
+    collections::HashMap, env::home_dir, hash::Hash, sync::{Arc, Mutex}
 };
 
 use mlua::Lua;
@@ -73,6 +72,9 @@ pub fn load_config(reload: bool) -> Result<Config, ()> {
             error!("Failed to put `modifiers` table in the `nwm` table: {e}");
         })?;
 
+
+
+
     // Add runtime info table
     nwm_table
         .set(
@@ -88,6 +90,14 @@ pub fn load_config(reload: bool) -> Result<Config, ()> {
     nwm_table.set("first_boot", !reload).map_err(|e| {
         error!("Failed to set first_boot global var: {e}");
     })?;
+
+    nwm_table.set("on", create_hook_register_fn(&lua, config.clone()).map_err(|e| {
+        error!("Failed to create `nwm.on` hook registering function: {e}");
+    })?).unwrap();
+
+    nwm_table.set("hook", create_hook_constant_table(&lua).map_err(|e| {
+        error!("Failed to create `nwm.hook` hook constants table: {e}");
+    })?).unwrap();
 
     lua.globals().set("nwm", nwm_table).map_err(|e| {
         error!("Failed to put table `nwm` in the globals table: {e}");
@@ -137,6 +147,35 @@ fn create_info_table(lua: &Lua) -> mlua::Result<mlua::Table> {
     info_table.set("workspace_count", 10)?;
     
     Ok(info_table)
+}
+
+fn create_hook_constant_table(lua: &Lua) -> mlua::Result<mlua::Table> {
+    let table = lua.create_table()?;
+    table.set("add_window", HookEvent::AddWindow)?;
+    Ok(table)
+
+}
+
+fn create_hook_register_fn(lua: &Lua, config: Arc<Mutex<Config>>) -> mlua::Result<mlua::Function> {
+    let cfg = config.clone();
+    lua.create_function(move |_ctx, (event, callback): (HookEvent, mlua::Value)| {
+        if let mlua::Value::Function(f) = callback {
+            let hooks = &mut cfg.lock().unwrap().hooks;
+            match hooks.get_mut(&event) {
+                Some(v) => {
+                    v.push(Hook {
+                        func: f
+                    });
+                }
+                None => {
+                    hooks.insert(event, vec![Hook {
+                        func: f
+                    }]);
+                }
+            }
+        }
+        Ok(())
+    })
 }
 
 fn create_set_api(lua: &Lua, config: Arc<Mutex<Config>>) -> mlua::Result<mlua::Table> {
@@ -388,10 +427,23 @@ pub enum BindAction {
     LuaCallback(LuaCallback),
 }
 
+/// TODO: Expand these
+#[derive(Hash, Eq, PartialEq, Clone, Copy, Debug)]
+pub enum HookEvent {
+    AddWindow,
+    RemoveWindow,
+}
+
+#[derive(PartialEq, Clone, Debug)]
+pub struct Hook {
+    pub func: mlua::Function
+}
+
 #[derive(Clone)]
 pub struct Config {
     pub settings: Settings,
     pub binds: Vec<Binding>,
+    pub hooks: HashMap<HookEvent, Vec<Hook>>,
     pub lua: Option<Lua>,
 }
 
@@ -430,6 +482,7 @@ impl Default for Config {
                 },
             ],
             lua: None,
+            hooks: HashMap::new()
         }
     }
 }
@@ -554,6 +607,22 @@ impl mlua::FromLua for Action {
         }
     }
 }
+
+impl mlua::UserData for HookEvent {}
+impl mlua::FromLua for HookEvent {
+    fn from_lua(value: mlua::Value, _lua: &Lua) -> mlua::Result<Self> {
+        match value {
+            mlua::Value::UserData(ud) => Ok(*ud.borrow().unwrap()),
+            _ => Err(mlua::Error::FromLuaConversionError {
+                from: "Lua side hook constant",
+                to: "Rust size hook constant".to_string(),
+                message: Some("You might have specified a non-action value in config.lua, check if not then pr :)".to_string())
+            })
+        }
+    }
+}
+
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SpecialKey {
