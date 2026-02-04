@@ -1,3 +1,4 @@
+// TODO: Add data that is attached to hooks
 use log::error;
 use std::{
     collections::HashMap, env::home_dir, hash::Hash, sync::{Arc, Mutex}
@@ -152,6 +153,8 @@ fn create_info_table(lua: &Lua) -> mlua::Result<mlua::Table> {
 fn create_hook_constant_table(lua: &Lua) -> mlua::Result<mlua::Table> {
     let table = lua.create_table()?;
     table.set("add_window", HookEvent::AddWindow)?;
+    table.set("remove_window", HookEvent::RemoveWindow)?;
+    table.set("mouse_move", HookEvent::MouseMove)?;
     Ok(table)
 
 }
@@ -422,6 +425,7 @@ pub enum BindAction {
 pub enum HookEvent {
     AddWindow,
     RemoveWindow,
+    MouseMove,
 }
 
 #[derive(PartialEq, Clone, Debug)]

@@ -356,10 +356,13 @@ impl Nwm {
 
             match event {
                 Event::MapRequest(e) => {
+                    self.add_window(e);
                     self.hooks.call_hooks(lua_cfg::HookEvent::AddWindow);
-                    self.add_window(e)
                 },
-                Event::UnmapNotify(e) => self.remove_window(e),
+                Event::UnmapNotify(e) => {
+                    self.remove_window(e);
+                    self.hooks.call_hooks(lua_cfg::HookEvent::RemoveWindow);
+                },
                 Event::KeyPress(e) => {
                     for b in &self.binds.clone() {
                         b.try_do(&mut self, e);
@@ -381,6 +384,7 @@ impl Nwm {
                         self.last_x = x;
                         self.last_y = y;
                     }
+                    self.hooks.call_hooks(lua_cfg::HookEvent::MouseMove);
                 }
                 Event::EnterNotify(e) => {
                     self.curr_ws_mut().set_focused_id(e.event);
