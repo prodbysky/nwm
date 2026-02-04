@@ -3,11 +3,14 @@
 use crate::WindowId;
 use crate::better_x11rb;
 use log::warn;
+use x11rb::COPY_DEPTH_FROM_PARENT;
 use x11rb::protocol::xproto::ClientMessageEvent;
 use x11rb::protocol::xproto::ConnectionExt as OtherExt;
+use x11rb::protocol::xproto::CreateWindowAux;
+use x11rb::protocol::xproto::WindowClass;
 use x11rb::{
     protocol::xproto::{Atom, AtomEnum, PropMode},
-    wrapper::ConnectionExt,
+    wrapper::ConnectionExt, connection::Connection
 };
 
 pub struct Ewmh {
@@ -24,9 +27,18 @@ impl Ewmh {
     /// Interns atoms that are needed for nwm functionality
     /// (fullscreen, docks, current active desktop)
     pub fn new(x11_ab: &mut better_x11rb::X11RB) -> Self {
+        let mut supported_features = vec![];
+
+        let supported_features_atom = x11_ab.intern_atom(b"_NET_SUPPORTED");
+        if supported_features_atom.is_none() {
+            warn!("Failed to intern _NET_SUPPORTED, windows ran within nwm won't know the supported features");
+        }
+
         let window_type_atom = x11_ab.intern_atom(b"_NET_WM_WINDOW_TYPE");
         if window_type_atom.is_none() {
             warn!("Failed to intern _NET_WM_WINDOW_TYPE, emwh window type support is not present");
+        } else {
+            supported_features.push(window_type_atom.unwrap());
         }
         let window_type_dock_atom = x11_ab.intern_atom(b"_NET_WM_WINDOW_TYPE_DOCK");
 
@@ -34,6 +46,8 @@ impl Ewmh {
             warn!(
                 "Failed to intern _NET_WM_WINDOW_TYPE_DOCK, emwh window type support is not present"
             );
+        } else {
+            supported_features.push(window_type_dock_atom.unwrap());
         }
 
         let window_type_normal_atom = x11_ab.intern_atom(b"_NET_WM_WINDOW_TYPE_NORMAL");
@@ -41,12 +55,17 @@ impl Ewmh {
             warn!(
                 "Failed to intern _NET_WM_WINDOW_TYPE_NORMAL, emwh window type support is not present"
             );
+        } else {
+            supported_features.push(window_type_normal_atom.unwrap());
         }
+
         let strut_partial_atom = x11_ab.intern_atom(b"_NET_WM_STRUT_PARTIAL");
         if strut_partial_atom.is_none() {
             warn!(
                 "Failed to intern _NET_WM_STRUT_PARTIAL, docks that depend on this won't resize other windows"
             );
+        } else {
+            supported_features.push(strut_partial_atom.unwrap());
         }
 
         let fullscreen_state_atom = x11_ab.intern_atom(b"_NET_WM_STATE_FULLSCREEN");
@@ -54,11 +73,15 @@ impl Ewmh {
             warn!(
                 "Failed to intern _NET_WM_STATE_FULLSCREEN, fullscreen state will not be handled"
             );
+        } else {
+            supported_features.push(fullscreen_state_atom.unwrap());
         }
 
         let state_atom = x11_ab.intern_atom(b"_NET_WM_STATE");
         if state_atom.is_none() {
             warn!("Failed to intern _NET_WM_STATE, fullscreen state will not be handled");
+        } else {
+            supported_features.push(state_atom.unwrap());
         }
         use x11rb::wrapper::ConnectionExt;
 
@@ -76,7 +99,58 @@ impl Ewmh {
                 .map_err(|e| {
                     warn!("Failed to set _NET_CURRENT_DESKTOP: {e}");
                 });
+            supported_features.push(at);
         }
+
+        let support_check = x11_ab.intern_atom(b"_NET_SUPPORTING_WM_CHECK");
+        if let Some(sc) = support_check {
+            supported_features.push(sc);
+            let win = x11_ab.conn.generate_id().unwrap();
+            x11_ab.conn.create_window(
+                COPY_DEPTH_FROM_PARENT,
+                win,
+                x11_ab.root_window(),
+                0, 0, 1, 1,
+                0,
+                WindowClass::INPUT_OUTPUT,
+                0,
+                &CreateWindowAux::new(),
+            ).unwrap();
+            x11_ab.conn.change_property32(
+                PropMode::REPLACE,
+                x11_ab.root_window(),
+                sc,
+                AtomEnum::WINDOW,
+                &[win],
+            ).unwrap();
+            x11_ab.conn.change_property32(
+                PropMode::REPLACE,
+                win,
+                sc,
+                AtomEnum::WINDOW,
+                &[win],
+            ).unwrap();
+            let wm_name = x11_ab.intern_atom(b"_NET_WM_NAME").unwrap();
+            let utf8 = x11_ab.intern_atom(b"UTF8_STRING").unwrap();
+            x11_ab.conn.change_property8(
+                PropMode::REPLACE,
+                win,
+                wm_name,
+                utf8,
+                b"nwm",
+            ).unwrap();
+        } else {
+            warn!("Failed to intern _NET_SUPPORTING_WM_CHECK atom")
+        }
+
+        if let Some(sup) = supported_features_atom {
+            _ = x11_ab.conn.change_property32(PropMode::REPLACE, x11_ab.root_window(), sup, AtomEnum::ATOM, &supported_features).map_err(|e| {
+                warn!("Failed to change _NET_SUPPORTED property: {e}")
+            });
+        }
+
+
+
         Self {
             window_type_atom,
             window_type_dock_atom,
