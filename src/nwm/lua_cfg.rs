@@ -160,19 +160,9 @@ fn create_hook_register_fn(lua: &Lua, config: Arc<Mutex<Config>>) -> mlua::Resul
     let cfg = config.clone();
     lua.create_function(move |_ctx, (event, callback): (HookEvent, mlua::Value)| {
         if let mlua::Value::Function(f) = callback {
-            let hooks = &mut cfg.lock().unwrap().hooks;
-            match hooks.get_mut(&event) {
-                Some(v) => {
-                    v.push(Hook {
-                        func: f
-                    });
-                }
-                None => {
-                    hooks.insert(event, vec![Hook {
-                        func: f
-                    }]);
-                }
-            }
+            cfg.lock().unwrap().hooks.add_hook(event, Hook {
+                func: f
+            });
         }
         Ok(())
     })
@@ -443,9 +433,34 @@ pub struct Hook {
 pub struct Config {
     pub settings: Settings,
     pub binds: Vec<Binding>,
-    pub hooks: HashMap<HookEvent, Vec<Hook>>,
+    pub hooks: Hooks,
     pub lua: Option<Lua>,
 }
+
+#[derive(Clone)]
+pub struct Hooks(HashMap<HookEvent, Vec<Hook>>);
+
+impl Hooks {
+    pub fn new() -> Self {
+        Self (HashMap::new())
+    }
+    pub fn call_hooks(&self, event: HookEvent) {
+        if let Some(fun) = &self.0.get(&event) {
+            for hook in fun.iter() {
+                hook.func.call::<()>(()).unwrap();
+            }
+        }
+    }
+    fn add_hook(&mut self, event: HookEvent, callback: Hook) {
+        match self.0.get_mut(&event) {
+            Some(v) => v.push(callback),
+            None => {
+                self.0.insert(event, vec![callback]);
+            }
+        }
+    }
+}
+
 
 impl Default for Config {
     fn default() -> Self {
@@ -482,7 +497,7 @@ impl Default for Config {
                 },
             ],
             lua: None,
-            hooks: HashMap::new()
+            hooks: Hooks::new()
         }
     }
 }

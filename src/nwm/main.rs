@@ -35,11 +35,8 @@ struct Nwm {
     suppress_cursor_focus: bool,
     layout_man: layout::LayoutManager,
     lua: Option<mlua::Lua>,
-    hooks: HashMap<lua_cfg::HookEvent, Vec<lua_cfg::Hook>>
+    hooks: lua_cfg::Hooks
 }
-
-
-
 
 impl Nwm {
     /// Updates runtime info in the Lua context
@@ -67,7 +64,7 @@ impl Nwm {
     fn apply_lua_config(
         conf: lua_cfg::Config,
         x11: &mut better_x11rb::X11RB,
-    ) -> (u8, Vec<Bind>, String, String, u32, u32, u8, f32, Option<mlua::Lua>, HashMap<lua_cfg::HookEvent, Vec<lua_cfg::Hook>>) {
+    ) -> (u8, Vec<Bind>, String, String, u32, u32, u8, f32, Option<mlua::Lua>, lua_cfg::Hooks) {
         let settings = conf.settings;
 
         let mut binds = Vec::new();
@@ -191,7 +188,6 @@ impl Nwm {
         });
         let (gap, binds, terminal, launcher, active, inactive, width, master_ratio, lua, hooks) =
             Self::apply_lua_config(conf, &mut x11_ab);
-        dbg!(&hooks);
 
         info!("Everything went well in initialization :DD");
         if launcher.is_empty() {
@@ -360,11 +356,7 @@ impl Nwm {
 
             match event {
                 Event::MapRequest(e) => {
-                    if let Some(fun) = &self.hooks.get(&lua_cfg::HookEvent::AddWindow) {
-                        for hook in fun.iter() {
-                            hook.func.call::<()>(()).unwrap();
-                        }
-                    }
+                    self.hooks.call_hooks(lua_cfg::HookEvent::AddWindow);
                     self.add_window(e)
                 },
                 Event::UnmapNotify(e) => self.remove_window(e),
