@@ -35,6 +35,7 @@ struct Nwm {
     suppress_cursor_focus: bool,
     layout_man: layout::LayoutManager,
     lua: Option<mlua::Lua>,
+    hooks: lua_cfg::Hooks
 }
 
 impl Nwm {
@@ -63,7 +64,7 @@ impl Nwm {
     fn apply_lua_config(
         conf: lua_cfg::Config,
         x11: &mut better_x11rb::X11RB,
-    ) -> (u8, Vec<Bind>, String, String, u32, u32, u8, f32, Option<mlua::Lua>) {
+    ) -> (u8, Vec<Bind>, String, String, u32, u32, u8, f32, Option<mlua::Lua>, lua_cfg::Hooks) {
         let settings = conf.settings;
 
         let mut binds = Vec::new();
@@ -89,6 +90,7 @@ impl Nwm {
             });
         }
 
+
         (
             settings.gap as u8,
             binds,
@@ -99,6 +101,7 @@ impl Nwm {
             settings.border_width as u8,
             settings.master_ratio,
             conf.lua,
+            conf.hooks
         )
     }
 
@@ -133,7 +136,7 @@ impl Nwm {
 
         self.binds.clear();
 
-        let (gap, binds, terminal, launcher, active, inactive, width, master_ratio, lua) =
+        let (gap, binds, terminal, launcher, active, inactive, width, master_ratio, lua, hooks) =
             Self::apply_lua_config(conf, &mut self.x11);
 
         self.gap = gap;
@@ -145,6 +148,7 @@ impl Nwm {
         self.border_width = width;
         self.master_ratio = master_ratio;
         self.lua = lua;
+        self.hooks = hooks;
 
         for ws in self.workspaces.clone() {
             for w in ws.windows() {
@@ -182,7 +186,7 @@ impl Nwm {
             warn!("Failed to load config on startup using barebones default config");
             lua_cfg::Config::default()
         });
-        let (gap, binds, terminal, launcher, active, inactive, width, master_ratio, lua) =
+        let (gap, binds, terminal, launcher, active, inactive, width, master_ratio, lua, hooks) =
             Self::apply_lua_config(conf, &mut x11_ab);
 
         info!("Everything went well in initialization :DD");
@@ -217,6 +221,7 @@ impl Nwm {
             master_ratio,
             ewmh,
             lua,
+            hooks
         })
     }
 
@@ -350,8 +355,14 @@ impl Nwm {
             };
 
             match event {
-                Event::MapRequest(e) => self.add_window(e),
-                Event::UnmapNotify(e) => self.remove_window(e),
+                Event::MapRequest(e) => {
+                    self.add_window(e);
+                    self.hooks.call_hooks(lua_cfg::HookEvent::AddWindow);
+                },
+                Event::UnmapNotify(e) => {
+                    self.remove_window(e);
+                    self.hooks.call_hooks(lua_cfg::HookEvent::RemoveWindow);
+                },
                 Event::KeyPress(e) => {
                     for b in &self.binds.clone() {
                         b.try_do(&mut self, e);
@@ -373,6 +384,7 @@ impl Nwm {
                         self.last_x = x;
                         self.last_y = y;
                     }
+                    self.hooks.call_hooks(lua_cfg::HookEvent::MouseMove);
                 }
                 Event::EnterNotify(e) => {
                     self.curr_ws_mut().set_focused_id(e.event);

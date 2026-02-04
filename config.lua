@@ -1,3 +1,4 @@
+-- TODO: Add types for this config somehow (I can't figure it out)
 nwm.set.master_key(nwm.modifier.Super)
 nwm.set.gap(8)
 nwm.set.master_ratio(0.25)
