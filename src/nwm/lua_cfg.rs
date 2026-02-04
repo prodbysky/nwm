@@ -1,5 +1,5 @@
 // TODO: Add data that is attached to hooks
-use log::error;
+use log::{error, warn};
 use std::{
     collections::HashMap, env::home_dir, hash::Hash, sync::{Arc, Mutex}
 };
@@ -154,23 +154,24 @@ fn create_hook_constant_table(lua: &Lua) -> mlua::Result<mlua::Table> {
     let table = lua.create_table()?;
     table.set("add_window", HookEvent::AddWindow)?;
     table.set("remove_window", HookEvent::RemoveWindow)?;
-    table.set("mouse_move", HookEvent::MouseMove)?;
     Ok(table)
 
 }
 
 fn create_hook_register_fn(lua: &Lua, config: Arc<Mutex<Config>>) -> mlua::Result<mlua::Function> {
     let cfg = config.clone();
-    lua.create_function(move |_ctx, (event, callback): (HookEvent, mlua::Value)| {
+    lua.create_function(move |lua_ctx, (event, callback): (HookEvent, mlua::Value)| {
         if let mlua::Value::Function(f) = callback {
+            let key = lua_ctx.create_registry_value(f)
+                .map_err(|e| mlua::Error::RuntimeError(format!("Failed to store hook: {}", e)))?;
+            
             cfg.lock().unwrap().hooks.add_hook(event, Hook {
-                func: f
+                key: Arc::new(key)
             });
         }
         Ok(())
     })
 }
-
 fn create_set_api(lua: &Lua, config: Arc<Mutex<Config>>) -> mlua::Result<mlua::Table> {
     let set_table = lua.create_table()?;
 
@@ -425,12 +426,28 @@ pub enum BindAction {
 pub enum HookEvent {
     AddWindow,
     RemoveWindow,
-    MouseMove,
+}
+
+#[derive(Clone)]
+pub enum HookData {
+    AddWindow(AddWindowData),
+    RemoveWindow(RemoveWindowData),
+}
+
+#[derive(Clone)]
+pub struct AddWindowData {
+    pub window_id: crate::WindowId,
+    pub is_floating: bool
+}
+
+#[derive(Clone)]
+pub struct RemoveWindowData {
+    pub window_id: crate::WindowId,
 }
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct Hook {
-    pub func: mlua::Function
+    pub key: Arc<mlua::RegistryKey>,
 }
 
 #[derive(Clone)]
@@ -448,10 +465,12 @@ impl Hooks {
     pub fn new() -> Self {
         Self (HashMap::new())
     }
-    pub fn call_hooks(&self, event: HookEvent) {
-        if let Some(fun) = &self.0.get(&event) {
-            for hook in fun.iter() {
-                hook.func.call::<()>(()).unwrap();
+    pub fn call_hooks(&self, lua: &Lua, event: HookEvent, data: HookData) {
+        if let Some(hooks) = self.0.get(&event) {
+            for hook in hooks.iter() {
+                if let Err(e) = hook.call(lua, data.clone()) {
+                    warn!("Hook callback error: {}", e);
+                }
             }
         }
     }
@@ -462,6 +481,36 @@ impl Hooks {
                 self.0.insert(event, vec![callback]);
             }
         }
+    }
+}
+
+impl Hook {
+    pub fn call(&self, lua: &Lua, data: HookData) -> mlua::Result<()> {
+        let func: mlua::Function = lua.registry_value(&self.key)?;
+        
+        let table = lua.create_table()?;
+        
+        match data {
+            HookData::AddWindow(d) => {
+                table.set("window_id", d.window_id)?;
+                table.set("is_floating", d.is_floating)?;
+            }
+            HookData::RemoveWindow(d) => {
+                table.set("window_id", d.window_id)?;
+            }
+            HookData::MouseMove(d) => {
+                table.set("x", d.x)?;
+                table.set("y", d.y)?;
+                if let Some(win) = d.hovered_window {
+                    table.set("hovered_window", win)?;
+                } else {
+                    table.set("hovered_window", mlua::Nil)?;
+                }
+            }
+        }
+        
+        func.call::<mlua::Table>(table)?;
+        Ok(())
     }
 }
 
