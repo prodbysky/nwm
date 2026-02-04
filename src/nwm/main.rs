@@ -10,7 +10,7 @@ use std::{collections::HashMap, process::Command};
 
 use better_x11rb::WindowId;
 
-use log::{error, info, warn};
+use log::{error, info, warn, trace};
 
 struct Nwm {
     x11: better_x11rb::X11RB,
@@ -426,6 +426,10 @@ impl Nwm {
                             ewmh::FullscreenMessage::ToggleFullscreen => {}
                         }
                     }
+                    if self.ewmh.requested_to_close(e) {
+                        trace!("Closed window due to _NET_CLOSE_WINDOW message: {}", e.window);
+                        self.close_window(e.window);
+                    }
                 }
                 Event::PropertyNotify(e) => {
                     if let Some(strut) = self.ewmh.get_strut(&mut self.x11, e.window) {
@@ -824,6 +828,7 @@ impl Nwm {
 
         self.curr_ws_mut().set_focused_id(id);
         self.last_focused = Some(id);
+        self.ewmh.set_focused(id, &mut self.x11);
         self.update_lua_runtime_info();
     }
 }

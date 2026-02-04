@@ -498,15 +498,6 @@ impl Hook {
             HookData::RemoveWindow(d) => {
                 table.set("window_id", d.window_id)?;
             }
-            HookData::MouseMove(d) => {
-                table.set("x", d.x)?;
-                table.set("y", d.y)?;
-                if let Some(win) = d.hovered_window {
-                    table.set("hovered_window", win)?;
-                } else {
-                    table.set("hovered_window", mlua::Nil)?;
-                }
-            }
         }
         
         func.call::<mlua::Table>(table)?;
