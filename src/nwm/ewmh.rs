@@ -1,4 +1,4 @@
-/// EMWH/ICCCM state manager
+/// EWMH/ICCCM state manager
 /// Ideally all the things to do with getting/setting atoms will be done here
 use crate::WindowId;
 use crate::better_x11rb;
