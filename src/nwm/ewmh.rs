@@ -1,3 +1,4 @@
+
 /// EWMH/ICCCM state manager
 /// Ideally all the things to do with getting/setting atoms will be done here
 use crate::WindowId;
@@ -19,6 +20,7 @@ pub struct Ewmh {
     window_type_dock_atom: Option<Atom>,
     strut_partial_atom: Option<Atom>,
     active_desktop_atom: Option<Atom>,
+    num_desktops_atom: Option<Atom>,
     state_atom: Option<Atom>,
     fullscreen_state_atom: Option<Atom>,
 }
@@ -83,6 +85,23 @@ impl Ewmh {
         } else {
             supported_features.push(state_atom.unwrap());
         }
+
+        let num_desktops_atom = x11_ab.intern_atom(b"_NET_NUMBER_OF_DESKTOPS");
+        if num_desktops_atom.is_none() {
+            warn!("Failed to intern _NET_NUBER_OF_DESKTOPS");
+        } else {
+            supported_features.push(num_desktops_atom.unwrap());
+            _ = x11_ab
+                .conn
+                .change_property32(
+                    PropMode::REPLACE,
+                    x11_ab.root_window(),
+                    num_desktops_atom.unwrap(),
+                    AtomEnum::CARDINAL,
+                    &[10],
+                );
+        }
+
         use x11rb::wrapper::ConnectionExt;
 
         let active_desktop_atom = x11_ab.intern_atom(b"_NET_CURRENT_DESKTOP");
@@ -159,6 +178,7 @@ impl Ewmh {
             strut_partial_atom,
             fullscreen_state_atom,
             active_desktop_atom,
+            num_desktops_atom
         }
     }
 
