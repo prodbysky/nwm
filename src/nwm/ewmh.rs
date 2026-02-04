@@ -344,19 +344,6 @@ impl Ewmh {
     }
 }
 
-pub enum AtomKind {
-    WindowType(WindowType),
-    StrutPartial,
-    ActiveDesktop,
-    State,
-    FullscreenState,
-}
-
-pub enum WindowType {
-    Normal,
-    Dock,
-}
-
 pub enum FullscreenMessage {
     DisableFullscreen,
     EnableFullscreen,
