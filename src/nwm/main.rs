@@ -356,12 +356,32 @@ impl Nwm {
 
             match event {
                 Event::MapRequest(e) => {
+                    let is_floating = !self.ewmh.window_is_normal(&mut self.x11, e.window);
                     self.add_window(e);
-                    self.hooks.call_hooks(lua_cfg::HookEvent::AddWindow);
+                    
+                    if let Some(lua) = &self.lua {
+                        self.hooks.call_hooks(
+                            lua,
+                            lua_cfg::HookEvent::AddWindow,
+                            lua_cfg::HookData::AddWindow(lua_cfg::AddWindowData {
+                                window_id: e.window,
+                                is_floating,
+                            })
+                        );
+                    }
                 },
                 Event::UnmapNotify(e) => {
                     self.remove_window(e);
-                    self.hooks.call_hooks(lua_cfg::HookEvent::RemoveWindow);
+                    
+                    if let Some(lua) = &self.lua {
+                        self.hooks.call_hooks(
+                            lua,
+                            lua_cfg::HookEvent::RemoveWindow,
+                            lua_cfg::HookData::RemoveWindow(lua_cfg::RemoveWindowData {
+                                window_id: e.window,
+                            })
+                        );
+                    }
                 },
                 Event::KeyPress(e) => {
                     for b in &self.binds.clone() {
@@ -373,6 +393,7 @@ impl Nwm {
                         continue;
                     }
                     let (x, y) = self.x11.mouse_pos();
+
                     if self.last_x != x || self.last_y != y {
                         let rects = self.tiled_window_rects();
                         for (i, r) in rects.iter() {
@@ -381,10 +402,10 @@ impl Nwm {
                                 self.set_focus(*i);
                             }
                         }
+
                         self.last_x = x;
                         self.last_y = y;
                     }
-                    self.hooks.call_hooks(lua_cfg::HookEvent::MouseMove);
                 }
                 Event::EnterNotify(e) => {
                     self.curr_ws_mut().set_focused_id(e.event);
