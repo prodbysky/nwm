@@ -249,10 +249,8 @@ You can also register callbacks to be run on different NWM events.
 Three are available so far:
  - When a window is added `nwm.hook.add_window`
  - When a window is removed `nwm.hook.remove_window`
- - When the mouse is moved `nwm.hook.mosue_move`
 One of these events should be used in the `nwm.on` function to register them.
 Multiple can be registered per event.
-Note that **so far** no data is attached when calling the callbacks.
 ##### Example:
  - TODO: No reasonable example exists for now
 
