@@ -21,6 +21,7 @@ pub struct Ewmh {
     strut_partial_atom: Option<Atom>,
     active_desktop_atom: Option<Atom>,
     num_desktops_atom: Option<Atom>,
+    active_window_atom: Option<Atom>,
     state_atom: Option<Atom>,
     fullscreen_state_atom: Option<Atom>,
 }
@@ -84,6 +85,22 @@ impl Ewmh {
             warn!("Failed to intern _NET_WM_STATE, fullscreen state will not be handled");
         } else {
             supported_features.push(state_atom.unwrap());
+        }
+
+        let active_window_atom = x11_ab.intern_atom(b"_NET_ACTIVE_WINDOW");
+        if state_atom.is_none() {
+            warn!("Failed to intern _NET_ACTIVE_WINDOW");
+        } else {
+            supported_features.push(active_window_atom.unwrap());
+            _ = x11_ab
+                .conn
+                .change_property32(
+                    PropMode::REPLACE,
+                    x11_ab.root_window(),
+                    active_window_atom.unwrap(),
+                    AtomEnum::CARDINAL,
+                    &[x11rb::NONE],
+                );
         }
 
         let num_desktops_atom = x11_ab.intern_atom(b"_NET_NUMBER_OF_DESKTOPS");
@@ -178,7 +195,8 @@ impl Ewmh {
             strut_partial_atom,
             fullscreen_state_atom,
             active_desktop_atom,
-            num_desktops_atom
+            num_desktops_atom,
+            active_window_atom
         }
     }
 
@@ -233,6 +251,23 @@ impl Ewmh {
                     active,
                     AtomEnum::CARDINAL,
                     &[num as u32],
+                )
+                .map_err(|e| {
+                    warn!("Failed to set _NET_CURRENT_DESKTOP: {e}");
+                });
+        }
+    }
+
+    pub fn set_focused(&mut self, id: WindowId, x11_ab: &mut better_x11rb::X11RB) {
+        if let Some(focused) = self.active_window_atom {
+            _ = x11_ab
+                .conn
+                .change_property32(
+                    PropMode::REPLACE,
+                    x11_ab.root_window(),
+                    focused,
+                    AtomEnum::CARDINAL,
+                    &[id as u32],
                 )
                 .map_err(|e| {
                     warn!("Failed to set _NET_CURRENT_DESKTOP: {e}");

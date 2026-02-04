@@ -824,6 +824,7 @@ impl Nwm {
 
         self.curr_ws_mut().set_focused_id(id);
         self.last_focused = Some(id);
+        self.ewmh.set_focused(id, &mut self.x11);
         self.update_lua_runtime_info();
     }
 }
