@@ -24,6 +24,7 @@ pub struct Ewmh {
     active_window_atom: Option<Atom>,
     state_atom: Option<Atom>,
     fullscreen_state_atom: Option<Atom>,
+    close_window_atom: Option<Atom>
 }
 
 impl Ewmh {
@@ -69,6 +70,15 @@ impl Ewmh {
             );
         } else {
             supported_features.push(strut_partial_atom.unwrap());
+        }
+
+        let close_window_atom = x11_ab.intern_atom(b"_NET_CLOSE_WINDOW");
+        if close_window_atom.is_none() {
+            warn!(
+                "Failed to intern _NET_CLOSE_WINDOW"
+            );
+        } else {
+            supported_features.push(close_window_atom.unwrap());
         }
 
         let fullscreen_state_atom = x11_ab.intern_atom(b"_NET_WM_STATE_FULLSCREEN");
@@ -188,6 +198,7 @@ impl Ewmh {
 
 
         Self {
+            close_window_atom,
             window_type_atom,
             window_type_dock_atom,
             window_type_normal_atom,
@@ -341,6 +352,13 @@ impl Ewmh {
             }
         }
         None
+    }
+
+    pub fn requested_to_close(&self, e: ClientMessageEvent) -> bool {
+        if let Some(close_atom) = self.close_window_atom {
+            return e.type_ == close_atom;
+        }
+        false
     }
 }
 

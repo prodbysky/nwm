@@ -10,7 +10,7 @@ use std::{collections::HashMap, process::Command};
 
 use better_x11rb::WindowId;
 
-use log::{error, info, warn};
+use log::{error, info, warn, trace};
 
 struct Nwm {
     x11: better_x11rb::X11RB,
@@ -425,6 +425,10 @@ impl Nwm {
                             }
                             ewmh::FullscreenMessage::ToggleFullscreen => {}
                         }
+                    }
+                    if self.ewmh.requested_to_close(e) {
+                        trace!("Closed window due to _NET_CLOSE_WINDOW message: {}", e.window);
+                        self.close_window(e.window);
                     }
                 }
                 Event::PropertyNotify(e) => {
