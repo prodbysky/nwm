@@ -406,7 +406,7 @@ impl Nwm {
                     if self.last_x != x || self.last_y != y {
                         let rects = self.tiled_window_rects();
                         for (i, r) in rects.iter() {
-                            if x > r.x && x < r.x + r.w {
+                            if x > r.x && x < r.x + r.w && y > r.y && y < r.y + r.h {
                                 self.curr_ws_mut().set_focused_id(*i);
                                 self.set_focus(*i);
                             }
