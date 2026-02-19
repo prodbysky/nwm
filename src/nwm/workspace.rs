@@ -44,11 +44,6 @@ impl Workspace {
                 .copied()
                 .or_else(|| self.floating.keys().next().copied());
         }
-        if let Some(p) = self.windows.iter().position(|i| id == *i) {
-            self.windows.remove(p);
-            return;
-        }
-        self.floating.remove(&id);
     }
 
     pub fn floating_window_ids(&self) -> std::collections::hash_map::Keys<'_, u32, Geometry> {
