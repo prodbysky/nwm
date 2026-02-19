@@ -1,11 +1,15 @@
 // TODO: Add data that is attached to hooks
 use log::{error, warn};
 use std::{
-    collections::HashMap, env::home_dir, hash::Hash, sync::{Arc, Mutex}
+    collections::HashMap,
+    env::home_dir,
+    hash::Hash,
+    rc::Rc,
+    sync::{Arc, Mutex},
 };
 
-use mlua::Lua;
 use mlua::FromLua;
+use mlua::Lua;
 
 /// Sets up the tables for the users configuration
 /// `nwm.first_boot` will be equal to `!reload`
@@ -16,7 +20,7 @@ pub fn load_config(reload: bool) -> Result<Config, ()> {
         error!("Failed to create base configuration table: {e}");
     })?;
 
-    let config = Arc::new(Mutex::new(Config::default()));
+    let config = Rc::new(Mutex::new(Config::default()));
 
     nwm_table
         .set(
@@ -73,9 +77,6 @@ pub fn load_config(reload: bool) -> Result<Config, ()> {
             error!("Failed to put `modifiers` table in the `nwm` table: {e}");
         })?;
 
-
-
-
     // Add runtime info table
     nwm_table
         .set(
@@ -92,13 +93,23 @@ pub fn load_config(reload: bool) -> Result<Config, ()> {
         error!("Failed to set first_boot global var: {e}");
     })?;
 
-    nwm_table.set("on", create_hook_register_fn(&lua, config.clone()).map_err(|e| {
-        error!("Failed to create `nwm.on` hook registering function: {e}");
-    })?).unwrap();
+    nwm_table
+        .set(
+            "on",
+            create_hook_register_fn(&lua, config.clone()).map_err(|e| {
+                error!("Failed to create `nwm.on` hook registering function: {e}");
+            })?,
+        )
+        .unwrap();
 
-    nwm_table.set("hook", create_hook_constant_table(&lua).map_err(|e| {
-        error!("Failed to create `nwm.hook` hook constants table: {e}");
-    })?).unwrap();
+    nwm_table
+        .set(
+            "hook",
+            create_hook_constant_table(&lua).map_err(|e| {
+                error!("Failed to create `nwm.hook` hook constants table: {e}");
+            })?,
+        )
+        .unwrap();
 
     lua.globals().set("nwm", nwm_table).map_err(|e| {
         error!("Failed to put table `nwm` in the globals table: {e}");
@@ -131,10 +142,10 @@ pub fn load_config(reload: bool) -> Result<Config, ()> {
 
 fn create_info_table(lua: &Lua) -> mlua::Result<mlua::Table> {
     let info_table = lua.create_table()?;
-    
+
     info_table.set("version", env!("CARGO_PKG_VERSION"))?;
     info_table.set("name", env!("CARGO_PKG_NAME"))?;
-    
+
     if let Ok(hostname) = std::env::var("HOSTNAME") {
         info_table.set("hostname", hostname)?;
     }
@@ -144,9 +155,9 @@ fn create_info_table(lua: &Lua) -> mlua::Result<mlua::Table> {
     if let Ok(display) = std::env::var("DISPLAY") {
         info_table.set("display", display)?;
     }
-    
+
     info_table.set("workspace_count", 10)?;
-    
+
     Ok(info_table)
 }
 
@@ -155,24 +166,27 @@ fn create_hook_constant_table(lua: &Lua) -> mlua::Result<mlua::Table> {
     table.set("add_window", HookEvent::AddWindow)?;
     table.set("remove_window", HookEvent::RemoveWindow)?;
     Ok(table)
-
 }
 
-fn create_hook_register_fn(lua: &Lua, config: Arc<Mutex<Config>>) -> mlua::Result<mlua::Function> {
+fn create_hook_register_fn(lua: &Lua, config: Rc<Mutex<Config>>) -> mlua::Result<mlua::Function> {
     let cfg = config.clone();
-    lua.create_function(move |lua_ctx, (event, callback): (HookEvent, mlua::Value)| {
-        if let mlua::Value::Function(f) = callback {
-            let key = lua_ctx.create_registry_value(f)
-                .map_err(|e| mlua::Error::RuntimeError(format!("Failed to store hook: {}", e)))?;
-            
-            cfg.lock().unwrap().hooks.add_hook(event, Hook {
-                key: Arc::new(key)
-            });
-        }
-        Ok(())
-    })
+    lua.create_function(
+        move |lua_ctx, (event, callback): (HookEvent, mlua::Value)| {
+            if let mlua::Value::Function(f) = callback {
+                let key = lua_ctx.create_registry_value(f).map_err(|e| {
+                    mlua::Error::RuntimeError(format!("Failed to store hook: {}", e))
+                })?;
+
+                cfg.lock()
+                    .unwrap()
+                    .hooks
+                    .add_hook(event, Hook { key: Arc::new(key) });
+            }
+            Ok(())
+        },
+    )
 }
-fn create_set_api(lua: &Lua, config: Arc<Mutex<Config>>) -> mlua::Result<mlua::Table> {
+fn create_set_api(lua: &Lua, config: Rc<Mutex<Config>>) -> mlua::Result<mlua::Table> {
     let set_table = lua.create_table()?;
 
     macro_rules! set_usize {
@@ -320,7 +334,7 @@ fn create_action_data(lua: &Lua) -> mlua::Result<mlua::Table> {
     Ok(action_table)
 }
 
-fn create_bind_api(lua: &Lua, config: Arc<Mutex<Config>>) -> mlua::Result<mlua::Function> {
+fn create_bind_api(lua: &Lua, config: Rc<Mutex<Config>>) -> mlua::Result<mlua::Function> {
     let bind = lua.create_function(move |lua_ctx, (combo, action): (String, mlua::Value)| {
         let combo = parse_keycombo(&combo)
             .map_err(|_| mlua::Error::RuntimeError("invalid key combo".into()))?;
@@ -334,17 +348,18 @@ fn create_bind_api(lua: &Lua, config: Arc<Mutex<Config>>) -> mlua::Result<mlua::
                 }
             }
             mlua::Value::Function(func) => {
-                let key = lua_ctx.create_registry_value(func)
-                    .map_err(|e| mlua::Error::RuntimeError(format!("Failed to store callback: {}", e)))?;
-                
+                let key = lua_ctx.create_registry_value(func).map_err(|e| {
+                    mlua::Error::RuntimeError(format!("Failed to store callback: {}", e))
+                })?;
+
                 Binding {
                     combo,
-                    action: BindAction::LuaCallback(LuaCallback { key: Arc::new(key)}),
+                    action: BindAction::LuaCallback(LuaCallback { key: Arc::new(key) }),
                 }
             }
             _ => {
                 return Err(mlua::Error::RuntimeError(
-                    "action must be either an nwm.action constant or a function".into()
+                    "action must be either an nwm.action constant or a function".into(),
                 ));
             }
         };
@@ -437,7 +452,7 @@ pub enum HookData {
 #[derive(Clone)]
 pub struct AddWindowData {
     pub window_id: crate::WindowId,
-    pub is_floating: bool
+    pub is_floating: bool,
 }
 
 #[derive(Clone)]
@@ -463,7 +478,7 @@ pub struct Hooks(HashMap<HookEvent, Vec<Hook>>);
 
 impl Hooks {
     pub fn new() -> Self {
-        Self (HashMap::new())
+        Self(HashMap::new())
     }
     pub fn call_hooks(&self, lua: &Lua, event: HookEvent, data: HookData) {
         if let Some(hooks) = self.0.get(&event) {
@@ -487,9 +502,9 @@ impl Hooks {
 impl Hook {
     pub fn call(&self, lua: &Lua, data: HookData) -> mlua::Result<()> {
         let func: mlua::Function = lua.registry_value(&self.key)?;
-        
+
         let table = lua.create_table()?;
-        
+
         match data {
             HookData::AddWindow(d) => {
                 table.set("window_id", d.window_id)?;
@@ -499,12 +514,11 @@ impl Hook {
                 table.set("window_id", d.window_id)?;
             }
         }
-        
+
         func.call::<mlua::Table>(table)?;
         Ok(())
     }
 }
-
 
 impl Default for Config {
     fn default() -> Self {
@@ -541,7 +555,7 @@ impl Default for Config {
                 },
             ],
             lua: None,
-            hooks: Hooks::new()
+            hooks: Hooks::new(),
         }
     }
 }
@@ -680,8 +694,6 @@ impl mlua::FromLua for HookEvent {
         }
     }
 }
-
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SpecialKey {

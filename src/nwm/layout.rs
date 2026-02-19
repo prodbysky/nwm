@@ -19,8 +19,8 @@ impl LayoutManager {
         }
     }
 
-    pub fn get_current_layout(&self) -> &Box<dyn Layout> {
-        &self.layouts[self.curr_layout]
+    pub fn get_current_layout(&self) -> &dyn Layout {
+        self.layouts[self.curr_layout].as_ref()
     }
 
     /// Switches to the next available layout, wrapping around
@@ -33,7 +33,7 @@ impl LayoutManager {
         match self.curr_layout {
             0 => self.curr_layout = self.layouts.len() - 1,
             _ => {
-                self.curr_layout = self.curr_layout - 1;
+                self.curr_layout -= 1;
             }
         };
     }

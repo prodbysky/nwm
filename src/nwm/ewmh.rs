@@ -1,4 +1,3 @@
-
 /// EWMH/ICCCM state manager
 /// Ideally all the things to do with getting/setting atoms will be done here
 use crate::WindowId;
@@ -8,10 +7,12 @@ use x11rb::COPY_DEPTH_FROM_PARENT;
 use x11rb::protocol::xproto::ClientMessageEvent;
 use x11rb::protocol::xproto::ConnectionExt as OtherExt;
 use x11rb::protocol::xproto::CreateWindowAux;
+use x11rb::protocol::xproto::EventMask;
 use x11rb::protocol::xproto::WindowClass;
 use x11rb::{
+    connection::Connection,
     protocol::xproto::{Atom, AtomEnum, PropMode},
-    wrapper::ConnectionExt, connection::Connection
+    wrapper::ConnectionExt,
 };
 
 pub struct Ewmh {
@@ -24,7 +25,9 @@ pub struct Ewmh {
     active_window_atom: Option<Atom>,
     state_atom: Option<Atom>,
     fullscreen_state_atom: Option<Atom>,
-    close_window_atom: Option<Atom>
+    close_window_atom: Option<Atom>,
+    wm_protocols_atom: Option<Atom>,
+    wm_delete_window_atom: Option<Atom>,
 }
 
 impl Ewmh {
@@ -35,98 +38,108 @@ impl Ewmh {
 
         let supported_features_atom = x11_ab.intern_atom(b"_NET_SUPPORTED");
         if supported_features_atom.is_none() {
-            warn!("Failed to intern _NET_SUPPORTED, windows ran within nwm won't know the supported features");
+            warn!(
+                "Failed to intern _NET_SUPPORTED, windows ran within nwm won't know the supported features"
+            );
         }
 
         let window_type_atom = x11_ab.intern_atom(b"_NET_WM_WINDOW_TYPE");
-        if window_type_atom.is_none() {
-            warn!("Failed to intern _NET_WM_WINDOW_TYPE, emwh window type support is not present");
+        if let Some(wta) = window_type_atom {
+            supported_features.push(wta);
         } else {
-            supported_features.push(window_type_atom.unwrap());
+            warn!("Failed to intern _NET_WM_WINDOW_TYPE, emwh window type support is not present");
         }
-        let window_type_dock_atom = x11_ab.intern_atom(b"_NET_WM_WINDOW_TYPE_DOCK");
 
-        if window_type_dock_atom.is_none() {
+        let window_type_dock_atom = x11_ab.intern_atom(b"_NET_WM_WINDOW_TYPE_DOCK");
+        if let Some(wtda) = window_type_dock_atom {
+            supported_features.push(wtda);
+        } else {
             warn!(
                 "Failed to intern _NET_WM_WINDOW_TYPE_DOCK, emwh window type support is not present"
             );
-        } else {
-            supported_features.push(window_type_dock_atom.unwrap());
         }
 
         let window_type_normal_atom = x11_ab.intern_atom(b"_NET_WM_WINDOW_TYPE_NORMAL");
-        if window_type_normal_atom.is_none() {
+        if let Some(wtna) = window_type_normal_atom {
+            supported_features.push(wtna);
+        } else {
             warn!(
                 "Failed to intern _NET_WM_WINDOW_TYPE_NORMAL, emwh window type support is not present"
             );
-        } else {
-            supported_features.push(window_type_normal_atom.unwrap());
         }
 
         let strut_partial_atom = x11_ab.intern_atom(b"_NET_WM_STRUT_PARTIAL");
-        if strut_partial_atom.is_none() {
+        if let Some(spa) = strut_partial_atom {
+            supported_features.push(spa);
+        } else {
             warn!(
                 "Failed to intern _NET_WM_STRUT_PARTIAL, docks that depend on this won't resize other windows"
             );
-        } else {
-            supported_features.push(strut_partial_atom.unwrap());
         }
 
         let close_window_atom = x11_ab.intern_atom(b"_NET_CLOSE_WINDOW");
-        if close_window_atom.is_none() {
-            warn!(
-                "Failed to intern _NET_CLOSE_WINDOW"
-            );
+        if let Some(cwa) = close_window_atom {
+            supported_features.push(cwa);
         } else {
-            supported_features.push(close_window_atom.unwrap());
+            warn!("Failed to intern _NET_CLOSE_WINDOW");
         }
 
         let fullscreen_state_atom = x11_ab.intern_atom(b"_NET_WM_STATE_FULLSCREEN");
-        if fullscreen_state_atom.is_none() {
+        if let Some(fsa) = fullscreen_state_atom {
+            supported_features.push(fsa);
+        } else {
             warn!(
                 "Failed to intern _NET_WM_STATE_FULLSCREEN, fullscreen state will not be handled"
             );
-        } else {
-            supported_features.push(fullscreen_state_atom.unwrap());
         }
 
         let state_atom = x11_ab.intern_atom(b"_NET_WM_STATE");
-        if state_atom.is_none() {
-            warn!("Failed to intern _NET_WM_STATE, fullscreen state will not be handled");
+        if let Some(sa) = state_atom {
+            supported_features.push(sa);
         } else {
-            supported_features.push(state_atom.unwrap());
+            warn!("Failed to intern _NET_WM_STATE, fullscreen state will not be handled");
         }
 
         let active_window_atom = x11_ab.intern_atom(b"_NET_ACTIVE_WINDOW");
-        if state_atom.is_none() {
-            warn!("Failed to intern _NET_ACTIVE_WINDOW");
+        if let Some(awa) = active_window_atom {
+            supported_features.push(awa);
+            _ = x11_ab.conn.change_property32(
+                PropMode::REPLACE,
+                x11_ab.root_window(),
+                awa,
+                AtomEnum::CARDINAL,
+                &[x11rb::NONE],
+            );
         } else {
-            supported_features.push(active_window_atom.unwrap());
-            _ = x11_ab
-                .conn
-                .change_property32(
-                    PropMode::REPLACE,
-                    x11_ab.root_window(),
-                    active_window_atom.unwrap(),
-                    AtomEnum::CARDINAL,
-                    &[x11rb::NONE],
-                );
+            warn!("Failed to intern _NET_ACTIVE_WINDOW");
         }
 
         let num_desktops_atom = x11_ab.intern_atom(b"_NET_NUMBER_OF_DESKTOPS");
-        if num_desktops_atom.is_none() {
-            warn!("Failed to intern _NET_NUBER_OF_DESKTOPS");
+        if let Some(nda) = num_desktops_atom {
+            supported_features.push(nda);
+            _ = x11_ab.conn.change_property32(
+                PropMode::REPLACE,
+                x11_ab.root_window(),
+                nda,
+                AtomEnum::CARDINAL,
+                &[10],
+            );
         } else {
-            supported_features.push(num_desktops_atom.unwrap());
-            _ = x11_ab
-                .conn
-                .change_property32(
-                    PropMode::REPLACE,
-                    x11_ab.root_window(),
-                    num_desktops_atom.unwrap(),
-                    AtomEnum::CARDINAL,
-                    &[10],
-                );
+            warn!("Failed to intern _NET_NUBER_OF_DESKTOPS");
+        }
+
+        let wm_protocols_atom = x11_ab.intern_atom(b"WM_PROTOCOLS");
+        if let Some(wpa) = wm_protocols_atom {
+            supported_features.push(wpa);
+        } else {
+            warn!("Failed to intern WM_PROTOCOLS");
+        }
+
+        let wm_delete_window_atom = x11_ab.intern_atom(b"WM_DELETE_WINDOW");
+        if let Some(wdwa) = wm_delete_window_atom {
+            supported_features.push(wdwa);
+        } else {
+            warn!("Failed to intern WM_DELETE_WINDOW");
         }
 
         use x11rb::wrapper::ConnectionExt;
@@ -152,50 +165,58 @@ impl Ewmh {
         if let Some(sc) = support_check {
             supported_features.push(sc);
             let win = x11_ab.conn.generate_id().unwrap();
-            x11_ab.conn.create_window(
-                COPY_DEPTH_FROM_PARENT,
-                win,
-                x11_ab.root_window(),
-                0, 0, 1, 1,
-                0,
-                WindowClass::INPUT_OUTPUT,
-                0,
-                &CreateWindowAux::new(),
-            ).unwrap();
-            x11_ab.conn.change_property32(
-                PropMode::REPLACE,
-                x11_ab.root_window(),
-                sc,
-                AtomEnum::WINDOW,
-                &[win],
-            ).unwrap();
-            x11_ab.conn.change_property32(
-                PropMode::REPLACE,
-                win,
-                sc,
-                AtomEnum::WINDOW,
-                &[win],
-            ).unwrap();
+            x11_ab
+                .conn
+                .create_window(
+                    COPY_DEPTH_FROM_PARENT,
+                    win,
+                    x11_ab.root_window(),
+                    0,
+                    0,
+                    1,
+                    1,
+                    0,
+                    WindowClass::INPUT_OUTPUT,
+                    0,
+                    &CreateWindowAux::new(),
+                )
+                .unwrap();
+            x11_ab
+                .conn
+                .change_property32(
+                    PropMode::REPLACE,
+                    x11_ab.root_window(),
+                    sc,
+                    AtomEnum::WINDOW,
+                    &[win],
+                )
+                .unwrap();
+            x11_ab
+                .conn
+                .change_property32(PropMode::REPLACE, win, sc, AtomEnum::WINDOW, &[win])
+                .unwrap();
             let wm_name = x11_ab.intern_atom(b"_NET_WM_NAME").unwrap();
             let utf8 = x11_ab.intern_atom(b"UTF8_STRING").unwrap();
-            x11_ab.conn.change_property8(
-                PropMode::REPLACE,
-                win,
-                wm_name,
-                utf8,
-                b"nwm",
-            ).unwrap();
+            x11_ab
+                .conn
+                .change_property8(PropMode::REPLACE, win, wm_name, utf8, b"nwm")
+                .unwrap();
         } else {
             warn!("Failed to intern _NET_SUPPORTING_WM_CHECK atom")
         }
 
         if let Some(sup) = supported_features_atom {
-            _ = x11_ab.conn.change_property32(PropMode::REPLACE, x11_ab.root_window(), sup, AtomEnum::ATOM, &supported_features).map_err(|e| {
-                warn!("Failed to change _NET_SUPPORTED property: {e}")
-            });
+            _ = x11_ab
+                .conn
+                .change_property32(
+                    PropMode::REPLACE,
+                    x11_ab.root_window(),
+                    sup,
+                    AtomEnum::ATOM,
+                    &supported_features,
+                )
+                .map_err(|e| warn!("Failed to change _NET_SUPPORTED property: {e}"));
         }
-
-
 
         Self {
             close_window_atom,
@@ -207,7 +228,9 @@ impl Ewmh {
             fullscreen_state_atom,
             active_desktop_atom,
             num_desktops_atom,
-            active_window_atom
+            active_window_atom,
+            wm_delete_window_atom,
+            wm_protocols_atom,
         }
     }
 
@@ -238,7 +261,8 @@ impl Ewmh {
     pub fn window_type(&self, x11rb: &mut better_x11rb::X11RB, w: WindowId) -> Option<Vec<u32>> {
         let rep = x11rb
             .conn
-            .get_property(false, w, self.window_type_atom?, AtomEnum::ATOM, 0, 32).ok()?
+            .get_property(false, w, self.window_type_atom?, AtomEnum::ATOM, 0, 32)
+            .ok()?
             .reply()
             .map_err(|e| {
                 warn!("Failed to get reply from getting the window type of window {w}: {e}")
@@ -278,7 +302,7 @@ impl Ewmh {
                     x11_ab.root_window(),
                     focused,
                     AtomEnum::CARDINAL,
-                    &[id as u32],
+                    &[id],
                 )
                 .map_err(|e| {
                     warn!("Failed to set _NET_CURRENT_DESKTOP: {e}");
@@ -326,27 +350,26 @@ impl Ewmh {
     pub fn get_fullscreen_msg(&mut self, e: ClientMessageEvent) -> Option<FullscreenMessage> {
         if let Some(sa) = self.state_atom
             && let Some(fsa) = self.fullscreen_state_atom
+            && e.type_ == sa
         {
-            if e.type_ == sa {
-                let (action, first, second) = (
-                    e.data.as_data32()[0],
-                    e.data.as_data32()[1],
-                    e.data.as_data32()[2],
-                );
-                if first == fsa || second == fsa {
-                    match action {
-                        0 => {
-                            return Some(FullscreenMessage::DisableFullscreen);
-                        }
-                        1 => {
-                            return Some(FullscreenMessage::EnableFullscreen);
-                        }
-                        2 => {
-                            return Some(FullscreenMessage::ToggleFullscreen);
-                        }
-                        _ => {
-                            return None;
-                        }
+            let (action, first, second) = (
+                e.data.as_data32()[0],
+                e.data.as_data32()[1],
+                e.data.as_data32()[2],
+            );
+            if first == fsa || second == fsa {
+                match action {
+                    0 => {
+                        return Some(FullscreenMessage::Disable);
+                    }
+                    1 => {
+                        return Some(FullscreenMessage::Enable);
+                    }
+                    2 => {
+                        return Some(FullscreenMessage::Toggle);
+                    }
+                    _ => {
+                        return None;
                     }
                 }
             }
@@ -360,12 +383,57 @@ impl Ewmh {
         }
         false
     }
+
+    pub fn window_supports_delete(&mut self, x11rb: &mut better_x11rb::X11RB, w: WindowId) -> bool {
+        if let Some(wpa) = self.wm_protocols_atom
+            && let Some(wdwa) = self.wm_delete_window_atom
+        {
+            let reply = match x11rb
+                .conn
+                .get_property(false, w, wpa, AtomEnum::ATOM, 0, 32)
+                .ok()
+                .and_then(|c| c.reply().ok())
+            {
+                Some(r) => r,
+                None => return false,
+            };
+
+            if reply.format != 32 {
+                return false;
+            }
+
+            return reply
+                .value32()
+                .map(|mut atoms| atoms.any(|a| a == wdwa))
+                .unwrap_or(false);
+        }
+        false
+    }
+    pub fn close_window(&mut self, x11rb: &mut better_x11rb::X11RB, w: WindowId) {
+        if self.window_supports_delete(x11rb, w) {
+            let event = ClientMessageEvent::new(
+                32,
+                w,
+                self.wm_protocols_atom.unwrap(),
+                [
+                    self.wm_delete_window_atom.unwrap(),
+                    x11rb::CURRENT_TIME,
+                    0,
+                    0,
+                    0,
+                ],
+            );
+            let _ = x11rb.conn.send_event(false, w, EventMask::NO_EVENT, event);
+        } else {
+            x11rb.close_window(w);
+        }
+    }
 }
 
 pub enum FullscreenMessage {
-    DisableFullscreen,
-    EnableFullscreen,
-    ToggleFullscreen,
+    Disable,
+    Enable,
+    Toggle,
 }
 
 #[allow(dead_code)]

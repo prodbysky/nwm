@@ -10,7 +10,7 @@ use std::{collections::HashMap, process::Command};
 
 use better_x11rb::WindowId;
 
-use log::{error, info, warn, trace};
+use log::{error, info, trace, warn};
 
 struct Nwm {
     x11: better_x11rb::X11RB,
@@ -35,26 +35,25 @@ struct Nwm {
     suppress_cursor_focus: bool,
     layout_man: layout::LayoutManager,
     lua: Option<mlua::Lua>,
-    hooks: lua_cfg::Hooks
+    hooks: lua_cfg::Hooks,
 }
 
 impl Nwm {
     /// Updates runtime info in the Lua context
     fn update_lua_runtime_info(&self) {
-        if let Some(lua) = &self.lua {
-            if let Ok(nwm_table) = lua.globals().get::<mlua::Table>("nwm") {
-                if let Ok(info_table) = nwm_table.get::<mlua::Table>("info") {
-                    let _ = info_table.set("current_workspace", self.curr_workspace);
-                    let _ = info_table.set("focused_window", self.focused().unwrap_or(0));
-                    let _ = info_table.set("window_count", self.curr_ws().window_count());
-                    let _ = info_table.set("gap", self.gap as usize);
-                    let _ = info_table.set("master_ratio", self.master_ratio);
-                    
-                    let (w, h) = self.x11.screen_size();
-                    let _ = info_table.set("screen_width", w);
-                    let _ = info_table.set("screen_height", h);
-                }
-            }
+        if let Some(lua) = &self.lua
+            && let Ok(nwm_table) = lua.globals().get::<mlua::Table>("nwm")
+            && let Ok(info_table) = nwm_table.get::<mlua::Table>("info")
+        {
+            let _ = info_table.set("current_workspace", self.curr_workspace);
+            let _ = info_table.set("focused_window", self.focused().unwrap_or(0));
+            let _ = info_table.set("window_count", self.curr_ws().window_count());
+            let _ = info_table.set("gap", self.gap as usize);
+            let _ = info_table.set("master_ratio", self.master_ratio);
+
+            let (w, h) = self.x11.screen_size();
+            let _ = info_table.set("screen_width", w);
+            let _ = info_table.set("screen_height", h);
         }
     }
 
@@ -64,7 +63,18 @@ impl Nwm {
     fn apply_lua_config(
         conf: lua_cfg::Config,
         x11: &mut better_x11rb::X11RB,
-    ) -> (u8, Vec<Bind>, String, String, u32, u32, u8, f32, Option<mlua::Lua>, lua_cfg::Hooks) {
+    ) -> (
+        u8,
+        Vec<Bind>,
+        String,
+        String,
+        u32,
+        u32,
+        u8,
+        f32,
+        Option<mlua::Lua>,
+        lua_cfg::Hooks,
+    ) {
         let settings = conf.settings;
 
         let mut binds = Vec::new();
@@ -90,7 +100,6 @@ impl Nwm {
             });
         }
 
-
         (
             settings.gap as u8,
             binds,
@@ -101,8 +110,38 @@ impl Nwm {
             settings.border_width as u8,
             settings.master_ratio,
             conf.lua,
-            conf.hooks
+            conf.hooks,
         )
+    }
+    pub fn window_supports_delete(&mut self, x11rb: &mut better_x11rb::X11RB, w: WindowId) -> bool {
+        let wm_protocols = match x11rb.intern_atom(b"WM_PROTOCOLS") {
+            Some(a) => a,
+            None => return false,
+        };
+        let wm_delete_window = match x11rb.intern_atom(b"WM_DELETE_WINDOW") {
+            Some(a) => a,
+            None => return false,
+        };
+
+        let reply = match x11rb
+            .conn
+            .get_property(false, w, wm_protocols, AtomEnum::ATOM, 0, 32)
+            .ok()
+            .and_then(|c| c.reply().ok())
+        {
+            Some(r) => r,
+            None => return false,
+        };
+
+        if reply.format != 32 {
+            return false;
+        }
+
+        // Check if WM_DELETE_WINDOW is among the supported protocols
+        reply
+            .value32()
+            .map(|mut atoms| atoms.any(|a| a == wm_delete_window))
+            .unwrap_or(false)
     }
 
     /// If a focused window for the current workspace exists moves it to the specified workspace
@@ -221,7 +260,7 @@ impl Nwm {
             master_ratio,
             ewmh,
             lua,
-            hooks
+            hooks,
         })
     }
 
@@ -296,7 +335,7 @@ impl Nwm {
 
     /// Sends a request to x11 to close a window identified by `id`
     fn close_window(&mut self, id: WindowId) {
-        self.x11.close_window(id);
+        self.ewmh.close_window(&mut self.x11, id);
         // self.curr_ws_mut().remove_window(id);
     }
 
@@ -358,7 +397,7 @@ impl Nwm {
                 Event::MapRequest(e) => {
                     let is_floating = !self.ewmh.window_is_normal(&mut self.x11, e.window);
                     self.add_window(e);
-                    
+
                     if let Some(lua) = &self.lua {
                         self.hooks.call_hooks(
                             lua,
@@ -366,23 +405,23 @@ impl Nwm {
                             lua_cfg::HookData::AddWindow(lua_cfg::AddWindowData {
                                 window_id: e.window,
                                 is_floating,
-                            })
+                            }),
                         );
                     }
-                },
+                }
                 Event::UnmapNotify(e) => {
                     self.remove_window(e);
-                    
+
                     if let Some(lua) = &self.lua {
                         self.hooks.call_hooks(
                             lua,
                             lua_cfg::HookEvent::RemoveWindow,
                             lua_cfg::HookData::RemoveWindow(lua_cfg::RemoveWindowData {
                                 window_id: e.window,
-                            })
+                            }),
                         );
                     }
-                },
+                }
                 Event::KeyPress(e) => {
                     for b in &self.binds.clone() {
                         b.try_do(&mut self, e);
@@ -417,17 +456,20 @@ impl Nwm {
                 Event::ClientMessage(e) => {
                     if let Some(state) = self.ewmh.get_fullscreen_msg(e) {
                         match state {
-                            ewmh::FullscreenMessage::EnableFullscreen => {
+                            ewmh::FullscreenMessage::Enable => {
                                 self.set_fullscreen(e.window);
                             }
-                            ewmh::FullscreenMessage::DisableFullscreen => {
+                            ewmh::FullscreenMessage::Disable => {
                                 self.unset_fullscreen();
                             }
-                            ewmh::FullscreenMessage::ToggleFullscreen => {}
+                            ewmh::FullscreenMessage::Toggle => {}
                         }
                     }
                     if self.ewmh.requested_to_close(e) {
-                        trace!("Closed window due to _NET_CLOSE_WINDOW message: {}", e.window);
+                        trace!(
+                            "Closed window due to _NET_CLOSE_WINDOW message: {}",
+                            e.window
+                        );
                         self.close_window(e.window);
                     }
                 }
@@ -547,7 +589,7 @@ impl Nwm {
         vs
     }
 
-    /// Adds the window from `event` 
+    /// Adds the window from `event`
     /// TODO: This function **NEEDS** refactoring
     fn add_window(&mut self, event: MapRequestEvent) {
         self.x11.map_window(event.window);
@@ -845,7 +887,6 @@ fn main() -> Result<(), ()> {
     Ok(())
 }
 
-
 /// Every single `nwm.bind` call results in this struct begin created
 #[derive(Clone)]
 struct Bind {
@@ -890,12 +931,11 @@ impl Bind {
                 action_fn(nwm);
             }
             lua_cfg::BindAction::LuaCallback(callback) => {
-                if let Some(lua) = &nwm.lua {
-                    if let Ok(func) = lua.registry_value::<mlua::Function>(&callback.key) {
-                        if let Err(e) = func.call::<()>(()) {
-                            warn!("Lua callback error: {}", e);
-                        }
-                    }
+                if let Some(lua) = &nwm.lua
+                    && let Ok(func) = lua.registry_value::<mlua::Function>(&callback.key)
+                    && let Err(e) = func.call::<()>(())
+                {
+                    warn!("Lua callback error: {}", e);
                 }
             }
         }
@@ -923,11 +963,10 @@ struct Reserve {
 use x11rb::protocol::{
     Event,
     xproto::{
-        ChangeWindowAttributesAux, ConfigureWindowAux, ConnectionExt, EventMask, KeyPressEvent,
-        MapRequestEvent, ModMask, UnmapNotifyEvent,
+        AtomEnum, ChangeWindowAttributesAux, ConfigureWindowAux, ConnectionExt, EventMask,
+        KeyPressEvent, MapRequestEvent, ModMask, UnmapNotifyEvent,
     },
 };
-
 
 /// Maps `nwm.action<action>` to nwm functions or even lambdas
 fn action_to_fn(action: lua_cfg::Action) -> fn(&mut Nwm) {
