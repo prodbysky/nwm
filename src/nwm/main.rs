@@ -113,36 +113,6 @@ impl Nwm {
             conf.hooks,
         )
     }
-    pub fn window_supports_delete(&mut self, x11rb: &mut better_x11rb::X11RB, w: WindowId) -> bool {
-        let wm_protocols = match x11rb.intern_atom(b"WM_PROTOCOLS") {
-            Some(a) => a,
-            None => return false,
-        };
-        let wm_delete_window = match x11rb.intern_atom(b"WM_DELETE_WINDOW") {
-            Some(a) => a,
-            None => return false,
-        };
-
-        let reply = match x11rb
-            .conn
-            .get_property(false, w, wm_protocols, AtomEnum::ATOM, 0, 32)
-            .ok()
-            .and_then(|c| c.reply().ok())
-        {
-            Some(r) => r,
-            None => return false,
-        };
-
-        if reply.format != 32 {
-            return false;
-        }
-
-        // Check if WM_DELETE_WINDOW is among the supported protocols
-        reply
-            .value32()
-            .map(|mut atoms| atoms.any(|a| a == wm_delete_window))
-            .unwrap_or(false)
-    }
 
     /// If a focused window for the current workspace exists moves it to the specified workspace
     /// number
