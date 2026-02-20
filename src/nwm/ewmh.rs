@@ -161,49 +161,50 @@ impl Ewmh {
             supported_features.push(at);
         }
 
-        let support_check = x11_ab.intern_atom(b"_NET_SUPPORTING_WM_CHECK");
-        if let Some(sc) = support_check {
-            supported_features.push(sc);
-            let win = x11_ab.conn.generate_id().unwrap();
-            x11_ab
-                .conn
-                .create_window(
-                    COPY_DEPTH_FROM_PARENT,
-                    win,
-                    x11_ab.root_window(),
-                    0,
-                    0,
-                    1,
-                    1,
-                    0,
-                    WindowClass::INPUT_OUTPUT,
-                    0,
-                    &CreateWindowAux::new(),
-                )
-                .unwrap();
-            x11_ab
-                .conn
-                .change_property32(
-                    PropMode::REPLACE,
-                    x11_ab.root_window(),
-                    sc,
-                    AtomEnum::WINDOW,
-                    &[win],
-                )
-                .unwrap();
-            x11_ab
-                .conn
-                .change_property32(PropMode::REPLACE, win, sc, AtomEnum::WINDOW, &[win])
-                .unwrap();
-            let wm_name = x11_ab.intern_atom(b"_NET_WM_NAME").unwrap();
-            let utf8 = x11_ab.intern_atom(b"UTF8_STRING").unwrap();
-            x11_ab
-                .conn
-                .change_property8(PropMode::REPLACE, win, wm_name, utf8, b"nwm")
-                .unwrap();
-        } else {
-            warn!("Failed to intern _NET_SUPPORTING_WM_CHECK atom")
-        }
+        // NOTE: This apparently broke fullscreening (eg firefox) soooo fix it?
+        // let support_check = x11_ab.intern_atom(b"_NET_SUPPORTING_WM_CHECK");
+        // if let Some(sc) = support_check {
+        //     supported_features.push(sc);
+        //     let win = x11_ab.conn.generate_id().unwrap();
+        //     x11_ab
+        //         .conn
+        //         .create_window(
+        //             COPY_DEPTH_FROM_PARENT,
+        //             win,
+        //             x11_ab.root_window(),
+        //             0,
+        //             0,
+        //             1,
+        //             1,
+        //             0,
+        //             WindowClass::INPUT_OUTPUT,
+        //             0,
+        //             &CreateWindowAux::new(),
+        //         )
+        //         .unwrap();
+        //     x11_ab
+        //         .conn
+        //         .change_property32(
+        //             PropMode::REPLACE,
+        //             x11_ab.root_window(),
+        //             sc,
+        //             AtomEnum::WINDOW,
+        //             &[win],
+        //         )
+        //         .unwrap();
+        //     x11_ab
+        //         .conn
+        //         .change_property32(PropMode::REPLACE, win, sc, AtomEnum::WINDOW, &[win])
+        //         .unwrap();
+        //     let wm_name = x11_ab.intern_atom(b"_NET_WM_NAME").unwrap();
+        //     let utf8 = x11_ab.intern_atom(b"UTF8_STRING").unwrap();
+        //     x11_ab
+        //         .conn
+        //         .change_property8(PropMode::REPLACE, win, wm_name, utf8, b"nwm")
+        //         .unwrap();
+        // } else {
+        //     warn!("Failed to intern _NET_SUPPORTING_WM_CHECK atom")
+        // }
 
         if let Some(sup) = supported_features_atom {
             _ = x11_ab
