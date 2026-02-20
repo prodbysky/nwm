@@ -432,7 +432,13 @@ impl Nwm {
                             ewmh::FullscreenMessage::Disable => {
                                 self.unset_fullscreen();
                             }
-                            ewmh::FullscreenMessage::Toggle => {}
+                            ewmh::FullscreenMessage::Toggle => {
+                                if self.curr_ws().get_fullscreen_id().is_some() {
+                                    self.unset_fullscreen();
+                                } else {
+                                    self.set_fullscreen(e.window);
+                                }
+                            }
                         }
                     }
                     if self.ewmh.requested_to_close(e) {
